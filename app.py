@@ -1,3 +1,10 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import io
+import numpy as np
+import math
+
 # =========================
 # SPC CHARTS (GIỮ NGUYÊN)
 # =========================
@@ -148,3 +155,4 @@ for i, k in enumerate(spc):
         ax.set_title(k)
         ax.grid(axis="y", alpha=0.3)
         st.pyplot(fig)
+
