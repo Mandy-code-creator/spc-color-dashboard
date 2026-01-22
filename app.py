@@ -204,46 +204,81 @@ st.markdown(
 )
 
 # ======================================================
-# 📋 SPC SUMMARY TABLE (LINE) — CHỈ THÊM MIN / MAX
 # ======================================================
-summary_rows = []
+# 📋 SPC SUMMARY TABLE (LAB & LINE)
+# ======================================================
+summary_line = []
+summary_lab = []
 
 for k in spc:
-    values = spc[k]["line"]["value"].dropna()
-    mean = values.mean()
-    std = values.std()
-    n = values.count()
+    # ===== LINE =====
+    line_values = spc[k]["line"]["value"].dropna()
+    line_mean = line_values.mean()
+    line_std = line_values.std()
+    line_n = line_values.count()
 
-    v_min = values.min()
-    v_max = values.max()
+    line_min = line_values.min()
+    line_max = line_values.max()
 
     lcl, ucl = get_limit(color, k, "LINE")
 
     ca = cp = cpk = None
-    if std > 0 and lcl is not None and ucl is not None:
-        cp = (ucl - lcl) / (6 * std)
+    if line_std > 0 and lcl is not None and ucl is not None:
+        cp = (ucl - lcl) / (6 * line_std)
         cpk = min(
-            (ucl - mean) / (3 * std),
-            (mean - lcl) / (3 * std)
+            (ucl - line_mean) / (3 * line_std),
+            (line_mean - lcl) / (3 * line_std)
         )
-        ca = abs(mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
+        ca = abs(line_mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
 
-    summary_rows.append({
+    summary_line.append({
         "Factor": k,
-        "Min": round(v_min, 2),
-        "Max": round(v_max, 2),
-        "Mean": round(mean, 2),
-        "Std Dev": round(std, 2),
+        "Min": round(line_min, 2),
+        "Max": round(line_max, 2),
+        "Mean": round(line_mean, 2),
+        "Std Dev": round(line_std, 2),
         "Ca": round(ca, 2) if ca is not None else "",
         "Cp": round(cp, 2) if cp is not None else "",
         "Cpk": round(cpk, 2) if cpk is not None else "",
-        "n (batches)": n
+        "n": line_n
     })
 
-summary_df = pd.DataFrame(summary_rows)
+    # ===== LAB =====
+    lab_values = spc[k]["lab"]["value"].dropna()
+    lab_mean = lab_values.mean()
+    lab_std = lab_values.std()
+    lab_n = lab_values.count()
 
-st.markdown("### 📋 SPC Summary Statistics (LINE)")
-st.dataframe(summary_df, use_container_width=True, hide_index=True)
+    lab_min = lab_values.min()
+    lab_max = lab_values.max()
+
+    summary_lab.append({
+        "Factor": k,
+        "Min": round(lab_min, 2),
+        "Max": round(lab_max, 2),
+        "Mean": round(lab_mean, 2),
+        "Std Dev": round(lab_std, 2),
+        "n": lab_n
+    })
+
+summary_line_df = pd.DataFrame(summary_line)
+summary_lab_df = pd.DataFrame(summary_lab)
+
+# =========================
+# DISPLAY SIDE BY SIDE
+# =========================
+st.markdown("### 📋 SPC Summary Statistics")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("#### 🏭 LINE")
+    st.dataframe(summary_line_df, use_container_width=True, hide_index=True)
+
+with col2:
+    st.markdown("#### 🧪 LAB")
+    st.dataframe(summary_lab_df, use_container_width=True, hide_index=True)
+
 # =========================
 # SPC CHARTS (GIỮ NGUYÊN)
 # =========================
@@ -437,4 +472,5 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
