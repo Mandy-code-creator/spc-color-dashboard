@@ -394,5 +394,49 @@ for i, k in enumerate(spc):
         ax.set_title(k)
         ax.grid(axis="y", alpha=0.3)
         st.pyplot(fig)
+st.markdown("---")
+st.markdown("## 📈 LAB Process Distribution Dashboard")
+
+cols = st.columns(3)
+
+for i, k in enumerate(spc):
+    with cols[i]:
+        values = spc[k]["lab"]["value"].dropna()
+        mean = values.mean()
+        std = values.std()
+        lcl, ucl = get_limit(color, k, "LAB")
+
+        fig, ax = plt.subplots(figsize=(4, 3))
+
+        bins = np.histogram_bin_edges(values, bins=10)
+        counts, _, patches = ax.hist(
+            values,
+            bins=bins,
+            edgecolor="white",
+            color="#1f77b4"
+        )
+
+        # Highlight out-of-spec bins
+        for p, l, r in zip(patches, bins[:-1], bins[1:]):
+            center = (l + r) / 2
+            if lcl is not None and ucl is not None:
+                if center < lcl or center > ucl:
+                    p.set_facecolor("red")
+
+        # Normal curve
+        if std > 0:
+            x = np.linspace(mean - 3 * std, mean + 3 * std, 300)
+            pdf = normal_pdf(x, mean, std)
+            ax.plot(
+                x,
+                pdf * len(values) * (bins[1] - bins[0]),
+                color="black"
+            )
+
+        ax.set_title(f"{k} (LAB)")
+        ax.grid(axis="y", alpha=0.3)
+
+        st.pyplot(fig)
+
 
 
