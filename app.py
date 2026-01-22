@@ -205,6 +205,7 @@ st.markdown(
 
 # ======================================================
 # =========================
+# =========================
 # SPC SUMMARY TABLES
 # =========================
 line_rows = []
@@ -220,26 +221,20 @@ for k in spc:
 
     lcl, ucl = get_limit(color, k, "LINE")
 
-    ca = cp = cpk = ""
+    ca = cp = cpk = None
     if line_std > 0 and lcl is not None and ucl is not None:
-        cp = round((ucl - lcl) / (6 * line_std), 2)
-        cpk = round(
-            min(
-                (ucl - line_mean) / (3 * line_std),
-                (line_mean - lcl) / (3 * line_std)
-            ),
-            2
+        cp = (ucl - lcl) / (6 * line_std)
+        cpk = min(
+            (ucl - line_mean) / (3 * line_std),
+            (line_mean - lcl) / (3 * line_std)
         )
-        ca = round(
-            abs(line_mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2),
-            2
-        )
+        ca = abs(line_mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
 
     line_rows.append({
         "Factor": k,
-        "Min": round(line_min, 2),
-        "Max": round(line_max, 2),
-        "Std Dev": round(line_std, 2),
+        "Min": line_min,
+        "Max": line_max,
+        "Std Dev": line_std,
         "Ca": ca,
         "Cp": cp,
         "Cpk": cpk
@@ -249,13 +244,46 @@ for k in spc:
     lab_values = spc[k]["lab"]["value"].dropna()
     lab_rows.append({
         "Factor": k,
-        "Min": round(lab_values.min(), 2),
-        "Max": round(lab_values.max(), 2),
-        "Std Dev": round(lab_values.std(), 2)
+        "Min": lab_values.min(),
+        "Max": lab_values.max(),
+        "Std Dev": lab_values.std()
     })
 
-line_df = pd.DataFrame(line_rows)
-lab_df = pd.DataFrame(lab_rows)
+line_df = pd.DataFrame(line_rows).round(2)
+lab_df = pd.DataFrame(lab_rows).round(2)
+
+# =========================
+# DISPLAY – SIDE BY SIDE
+# =========================
+st.markdown("### 📋 SPC Summary")
+
+c1, c2 = st.columns(2)
+
+with c1:
+    st.markdown("#### 🏭 LINE")
+    st.dataframe(
+        line_df.style
+        .format("{:.2f}", subset=line_df.columns.drop("Factor"))
+        .set_properties(**{"text-align": "center"})
+        .set_table_styles([
+            {"selector": "th", "props": [("text-align", "center")]}
+        ]),
+        use_container_width=True,
+        hide_index=True
+    )
+
+with c2:
+    st.markdown("#### 🧪 LAB")
+    st.dataframe(
+        lab_df.style
+        .format("{:.2f}", subset=lab_df.columns.drop("Factor"))
+        .set_properties(**{"text-align": "center"})
+        .set_table_styles([
+            {"selector": "th", "props": [("text-align", "center")]}
+        ]),
+        use_container_width=True,
+        hide_index=True
+    )
 
 # =========================
 # DISPLAY – SIDE BY SIDE
@@ -473,5 +501,6 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
 
