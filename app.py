@@ -134,6 +134,35 @@ if month:
 if df.empty:
     st.warning("No data available for this selection.")
     st.stop()
+# =========================
+# SIDEBAR – CONTROL LIMIT TABLE
+# =========================
+def show_limits(source):
+    row = limit_df[limit_df["Color_code"] == color]
+    if row.empty:
+        st.sidebar.info(f"No {source} limits")
+        return
+
+    cols = [c for c in row.columns if source in c]
+    if not cols:
+        st.sidebar.info(f"No {source} limits")
+        return
+
+    table = row[cols].copy()
+    for c in table.columns:
+        table[c] = table[c].apply(
+            lambda x: f"{x:.2f}" if pd.notnull(x) else ""
+        )
+
+    st.sidebar.markdown(f"**{source} Control Limits**")
+    st.sidebar.dataframe(
+        table,
+        use_container_width=True,
+        hide_index=True
+    )
+
+show_limits("LAB")
+show_limits("LINE")
 
 # =========================
 # SAFE LIMIT FUNCTION (FIXED)
@@ -473,19 +502,6 @@ for i, k in enumerate(spc):
         st.pyplot(fig)
 
 # =========================
-# LIMIT DISPLAY
-# =========================
-def show_limits(factor):
-    row = limit_df[limit_df["Color_code"] == color]
-    if row.empty:
-        return
-    table = row.filter(like=factor).copy()
-    for c in table.columns:
-        table[c] = table[c].map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
-    st.sidebar.markdown(f"**{factor} Control Limits**")
-    st.sidebar.dataframe(table, use_container_width=True, hide_index=True)
 
-show_limits("LAB")
-show_limits("LINE")
 
 
