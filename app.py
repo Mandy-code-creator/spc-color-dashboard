@@ -166,6 +166,20 @@ spc = {
 # MAIN DASHBOARD
 # =========================
 st.title(f"🎨 SPC Color Dashboard — {color}")
+# =========================
+# TIME RANGE + N BATCH (RESTORE)
+# =========================
+if not df.empty:
+    t_min = df["Time"].min().strftime("%Y-%m-%d")
+    t_max = df["Time"].max().strftime("%Y-%m-%d")
+    n_batch = df["製造批號"].nunique()
+else:
+    t_min = t_max = "N/A"
+    n_batch = 0
+
+st.markdown(
+    f"⏱ **{t_min} → {t_max} | n = {n_batch} batches | Year: {year} | Month: {'All' if not month else month}**"
+)
 
 # ======================================================
 # 📋 SPC SUMMARY TABLE (LINE)  <<< CHỈ THÊM ĐOẠN NÀY
@@ -301,3 +315,4 @@ for k in spc:
     )
     st.pyplot(fig)
     download(fig, f"LINE_{color}_{k}.png")
+
