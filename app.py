@@ -1,11 +1,36 @@
 import streamlit as st
-import pandas as pd
 
-st.title("SPC – Test kết nối Google Sheet")
+st.error("🚨 YOU ARE RUNNING: streamlit_test_final.py")
 
-url = "https://docs.google.com/spreadsheets/d/1lqsLKSoDTbtvAsHzJaEri8tPo5pA3vqJ__LVHp2R534/gviz/tq?tqx=out:csv"
+st.set_page_config(
+    page_title="STREAMLIT FILE TEST",
+    layout="wide"
+)
 
-df = pd.read_csv(url)
+st.markdown(
+    """
+    <div style="padding:30px;border:4px solid red;">
+        <h1 style="color:red;">
+            🚨 STREAMLIT FILE TEST – MUST BE VISIBLE
+        </h1>
 
-st.success("Đọc Google Sheet thành công!")
-st.write(df.head())
+        <h2 style="color:blue;">
+            ⏱ 2024-07-03 → 2024-11-18 | n = 42 batches
+        </h2>
+
+        <h3 style="color:green;">
+            Year: 2024 | Month: All
+        </h3>
+
+        <p style="font-size:20px;">
+            If you see THIS SCREEN, you are running the CORRECT file.
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+st.write("📄 Python file path:")
+st.code(__file__)
+
+st.success("✅ TEST FINISHED – NOTHING SHOULD BE MISSING")
