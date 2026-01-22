@@ -215,6 +215,27 @@ st.markdown(
 
 # ======================================================
 # =========================
+# SPC CAPABILITY FUNCTIONS
+# =========================
+def calc_ca(mean, target, lcl, ucl):
+    if lcl is None or ucl is None:
+        return None
+    return abs(mean - target) / ((ucl - lcl) / 2)
+
+def calc_cp(std, lcl, ucl):
+    if std == 0 or lcl is None or ucl is None:
+        return None
+    return (ucl - lcl) / (6 * std)
+
+def calc_cpk(mean, std, lcl, ucl):
+    if std == 0 or lcl is None or ucl is None:
+        return None
+    return min(
+        (ucl - mean) / (3 * std),
+        (mean - lcl) / (3 * std)
+    )
+
+# =========================
 # SUMMARY TABLES
 # =========================
 st.markdown("## 📋 Process Summary")
@@ -415,5 +436,6 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
 
