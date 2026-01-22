@@ -13,6 +13,32 @@ st.set_page_config(
     page_icon="🎨",
     layout="wide"
 )
+st.markdown(
+    """
+    <style>
+    /* Full app background animation */
+    .stApp {
+        background: linear-gradient(
+            270deg,
+            #ffffff,
+            #f0f9ff,
+            #e0f2fe,
+            #fef3c7,
+            #ecfeff
+        );
+        background-size: 800% 800%;
+        animation: gradientBG 20s ease infinite;
+    }
+
+    @keyframes gradientBG {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # =========================
 # REFRESH BUTTON (TOP)
@@ -366,5 +392,6 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
 
