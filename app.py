@@ -15,6 +15,13 @@ st.set_page_config(
 )
 
 # =========================
+# REFRESH BUTTON
+# =========================
+if st.button("🔄 Refresh data"):
+    st.cache_data.clear()
+    st.rerun()
+
+# =========================
 # GOOGLE SHEET LINKS
 # =========================
 DATA_URL = "https://docs.google.com/spreadsheets/d/1lqsLKSoDTbtvAsHzJaEri8tPo5pA3vqJ__LVHp2R534/export?format=csv"
@@ -115,40 +122,63 @@ spc = {
 }
 
 # =========================
-# COMBINED SPC (HIGHLIGHT)
+# COMBINED SPC (ONLY CHANGE)
 # =========================
 def spc_combined(lab, line, title, lab_lim, line_lim):
     fig, ax = plt.subplots(figsize=(12, 4))
 
-    # ---- LAB ----
+    # LAB
     for _, r in lab.iterrows():
         y = r["value"]
         out = lab_lim[0] is not None and (y < lab_lim[0] or y > lab_lim[1])
+
         ax.scatter(
-            r["製造批號"], y,
+            r["製造批號"],
+            y,
             color="red" if out else "#1f77b4",
             marker="o",
-            s=60
+            s=60,
+            zorder=3
         )
-        if out:
-            ax.text(r["製造批號"], y, r["製造批號"],
-                    fontsize=8, color="red", rotation=45)
 
-    # ---- LINE ----
+        if out:
+            ax.text(
+                r["製造批號"],
+                y,
+                str(r["製造批號"]),
+                fontsize=8,
+                color="red",
+                rotation=45,
+                ha="left",
+                va="bottom"
+            )
+
+    # LINE
     for _, r in line.iterrows():
         y = r["value"]
         out = line_lim[0] is not None and (y < line_lim[0] or y > line_lim[1])
+
         ax.scatter(
-            r["製造批號"], y,
+            r["製造批號"],
+            y,
             color="red" if out else "#2ca02c",
             marker="s",
-            s=60
+            s=60,
+            zorder=3
         )
-        if out:
-            ax.text(r["製造批號"], y, r["製造批號"],
-                    fontsize=8, color="red", rotation=45)
 
-    # ---- LIMIT LINES ----
+        if out:
+            ax.text(
+                r["製造批號"],
+                y,
+                str(r["製造批號"]),
+                fontsize=8,
+                color="red",
+                rotation=45,
+                ha="left",
+                va="bottom"
+            )
+
     if lab_lim[0] is not None:
         ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":")
         ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":")
@@ -160,14 +190,14 @@ def spc_combined(lab, line, title, lab_lim, line_lim):
     ax.set_title(title)
     ax.grid(True)
     ax.tick_params(axis="x", rotation=45)
+
     return fig
 
 # =========================
 # DASHBOARD
 # =========================
 st.title(f"🎨 SPC Color Dashboard — {color}")
-
-st.markdown("### 📊 COMBINED SPC (Highlight NG Lot)")
+st.markdown("### 📊 COMBINED SPC")
 
 for k in spc:
     fig = spc_combined(
