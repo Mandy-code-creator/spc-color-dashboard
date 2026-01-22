@@ -253,8 +253,17 @@ def spc_combined(lab, line, title, lab_lim, line_lim):
     mean = line["value"].mean()
     std = line["value"].std()
 
-    ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
-    ax.plot(line["製造批號"], line["value"], "o-", label="LINE", color="#2ca02c")
+    ax.plot(
+    lab["製造批號"], lab["value"],
+    marker="o", linestyle="-",
+    label="LAB", color="#1f77b4"
+)
+
+ax.plot(
+    line["製造批號"], line["value"],
+    marker="s", linestyle="-",
+    label="LINE", color="#2ca02c"
+)
 
     ax.axhline(mean + 3 * std, color="orange", linestyle="--", label="+3σ")
     ax.axhline(mean - 3 * std, color="orange", linestyle="--", label="-3σ")
@@ -478,6 +487,7 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
 
 
