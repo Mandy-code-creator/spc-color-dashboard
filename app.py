@@ -13,7 +13,6 @@ st.set_page_config(
     page_icon="🎨",
     layout="wide"
 )
-
 st.markdown(
     """
     <style>
@@ -141,7 +140,7 @@ show_limits("LAB")
 show_limits("LINE")
 
 # =========================
-# CONTROL LIMIT FUNCTION
+# LIMIT FUNCTION
 # =========================
 def get_limit(color, prefix, factor):
     row = limit_df[limit_df["Color_code"] == color]
@@ -151,22 +150,6 @@ def get_limit(color, prefix, factor):
         row.get(f"{factor} {prefix} LCL", [None]).values[0],
         row.get(f"{factor} {prefix} UCL", [None]).values[0]
     )
-
-# =========================
-# SPEC LIMIT FUNCTION (FIXED & SAFE)
-# =========================
-def get_spec_limit(color, factor):
-    row = limit_df[limit_df["Color_code"] == color]
-    if row.empty:
-        return None, None
-
-    lsl_col = f"LINE {factor} LSL"
-    usl_col = f"LINE {factor} USL"
-
-    lsl = row[lsl_col].iloc[0] if lsl_col in row.columns else None
-    usl = row[usl_col].iloc[0] if usl_col in row.columns else None
-
-    return lsl, usl
 
 # =========================
 # PREP SPC DATA
@@ -221,7 +204,7 @@ st.markdown(
 )
 
 # ======================================================
-# SUMMARY – CONTROL LIMIT (GIỮ NGUYÊN)
+# 📋 SPC SUMMARY TABLE (LINE) — CHỈ THÊM MIN / MAX
 # ======================================================
 summary_rows = []
 
@@ -230,6 +213,9 @@ for k in spc:
     mean = values.mean()
     std = values.std()
     n = values.count()
+
+    v_min = values.min()
+    v_max = values.max()
 
     lcl, ucl = get_limit(color, k, "LINE")
 
@@ -244,6 +230,8 @@ for k in spc:
 
     summary_rows.append({
         "Factor": k,
+        "Min": round(v_min, 2),
+        "Max": round(v_max, 2),
         "Mean": round(mean, 2),
         "Std Dev": round(std, 2),
         "Ca": round(ca, 2) if ca is not None else "",
@@ -252,40 +240,7 @@ for k in spc:
         "n (batches)": n
     })
 
-st.markdown("### 📋 SPC Summary Statistics (LINE) — CONTROL LIMIT")
-st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+summary_df = pd.DataFrame(summary_rows)
 
-# ======================================================
-# SUMMARY – SPEC LIMIT (LSL / USL) ✅
-# ======================================================
-spec_rows = []
-
-for k in spc:
-    values = spc[k]["line"]["value"].dropna()
-    mean = values.mean()
-    std = values.std()
-    n = values.count()
-
-    lsl, usl = get_spec_limit(color, k)
-
-    ca = cp = cpk = None
-    if std > 0 and lsl is not None and usl is not None:
-        cp = (usl - lsl) / (6 * std)
-        cpk = min(
-            (usl - mean) / (3 * std),
-            (mean - lsl) / (3 * std)
-        )
-        ca = abs(mean - (usl + lsl) / 2) / ((usl - lsl) / 2)
-
-    spec_rows.append({
-        "Factor": k,
-        "Mean": round(mean, 2),
-        "Std Dev": round(std, 2),
-        "Ca (Spec)": round(ca, 2) if ca is not None else "",
-        "Cp (Spec)": round(cp, 2) if cp is not None else "",
-        "Cpk (Spec)": round(cpk, 2) if cpk is not None else "",
-        "n (batches)": n
-    })
-
-st.markdown("### 📋 SPC Summary Statistics (LINE) — SPEC LIMIT (LSL / USL)")
-st.dataframe(pd.DataFrame(spec_rows), use_container_width=True, hide_index=True)
+st.markdown("### 📋 SPC Summary Statistics (LINE)")
+st.dataframe(summary_df, use_container_width=True, hide_index=True)
