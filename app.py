@@ -13,6 +13,7 @@ st.set_page_config(
     page_icon="🎨",
     layout="wide"
 )
+
 st.markdown(
     """
     <style>
@@ -140,7 +141,7 @@ show_limits("LAB")
 show_limits("LINE")
 
 # =========================
-# LIMIT FUNCTION (CONTROL)
+# CONTROL LIMIT FUNCTION
 # =========================
 def get_limit(color, prefix, factor):
     row = limit_df[limit_df["Color_code"] == color]
@@ -152,16 +153,20 @@ def get_limit(color, prefix, factor):
     )
 
 # =========================
-# SPEC LIMIT FUNCTION (ADDED)
+# SPEC LIMIT FUNCTION (FIXED & SAFE)
 # =========================
 def get_spec_limit(color, factor):
     row = limit_df[limit_df["Color_code"] == color]
     if row.empty:
         return None, None
-    return (
-        row.get(f"LINE {factor} LSL", [None]).values[0],
-        row.get(f"LINE {factor} USL", [None]).values[0]
-    )
+
+    lsl_col = f"LINE {factor} LSL"
+    usl_col = f"LINE {factor} USL"
+
+    lsl = row[lsl_col].iloc[0] if lsl_col in row.columns else None
+    usl = row[usl_col].iloc[0] if usl_col in row.columns else None
+
+    return lsl, usl
 
 # =========================
 # PREP SPC DATA
@@ -216,7 +221,7 @@ st.markdown(
 )
 
 # ======================================================
-# ORIGINAL SUMMARY TABLE (CONTROL LIMIT) – GIỮ NGUYÊN
+# SUMMARY – CONTROL LIMIT (GIỮ NGUYÊN)
 # ======================================================
 summary_rows = []
 
@@ -247,13 +252,11 @@ for k in spc:
         "n (batches)": n
     })
 
-summary_df = pd.DataFrame(summary_rows)
-
 st.markdown("### 📋 SPC Summary Statistics (LINE) — CONTROL LIMIT")
-st.dataframe(summary_df, use_container_width=True, hide_index=True)
+st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
 
 # ======================================================
-# ✅ NEW SUMMARY TABLE (SPEC LIMIT – LSL / USL)
+# SUMMARY – SPEC LIMIT (LSL / USL) ✅
 # ======================================================
 spec_rows = []
 
@@ -284,7 +287,5 @@ for k in spc:
         "n (batches)": n
     })
 
-spec_df = pd.DataFrame(spec_rows)
-
 st.markdown("### 📋 SPC Summary Statistics (LINE) — SPEC LIMIT (LSL / USL)")
-st.dataframe(spec_df, use_container_width=True, hide_index=True)
+st.dataframe(pd.DataFrame(spec_rows), use_container_width=True, hide_index=True)
