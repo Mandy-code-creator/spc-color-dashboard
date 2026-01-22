@@ -50,7 +50,7 @@ if st.button("🔄 Refresh data"):
     st.rerun()
 
 # =========================
-# DATA
+# DATA URL
 # =========================
 DATA_URL = "https://docs.google.com/spreadsheets/d/1lqsLKSoDTbtvAsHzJaEri8tPo5pA3vqJ__LVHp2R534/export?format=csv"
 LIMIT_URL = "https://docs.google.com/spreadsheets/d/1jbP8puBraQ5Xgs9oIpJ7PlLpjIK3sltrgbrgKUcJ-Qo/export?format=csv"
@@ -69,7 +69,7 @@ df = load_data()
 limit_df = load_limit()
 
 # =========================
-# CLEAN COLUMNS
+# CLEAN COLUMN NAMES
 # =========================
 df.columns = (
     df.columns
@@ -100,19 +100,23 @@ year = st.sidebar.selectbox(
 df = df[df["Time"].dt.year == year]
 
 # =========================
-# LIMIT FUNCTION
+# LIMIT FUNCTION (FIXED)
 # =========================
 def get_limit(color, factor, prefix):
     row = limit_df[limit_df["Color_code"] == color]
     if row.empty:
         return None, None
-    return (
-        row.get(f"{factor} {prefix} LCL", [None]).values[0],
-        row.get(f"{factor} {prefix} UCL", [None]).values[0]
-    )
+
+    lcl_col = f"{factor} {prefix} LCL"
+    ucl_col = f"{factor} {prefix} UCL"
+
+    lcl = row[lcl_col].iloc[0] if lcl_col in row.columns else None
+    ucl = row[ucl_col].iloc[0] if ucl_col in row.columns else None
+
+    return lcl, ucl
 
 # =========================
-# PREP SPC
+# PREP SPC DATA
 # =========================
 def prep_spc(df, north, south):
     tmp = df.copy()
@@ -142,6 +146,43 @@ spc = {
         "line": prep_spc(df, "正-北 Δb", "正-南 Δb")
     }
 }
+
+# =========================
+# SPC SUMMARY TABLES
+# =========================
+def build_summary(spc_part, prefix):
+    rows = []
+    for k in spc:
+        values = spc[k][spc_part]["value"].dropna()
+        mean = values.mean()
+        std = values.std()
+        n = values.count()
+        vmin = values.min()
+        vmax = values.max()
+
+        lcl, ucl = get_limit(color, k, prefix)
+
+        ca = cp = cpk = None
+        if std > 0 and lcl is not None and ucl is not None:
+            cp = (ucl - lcl) / (6 * std)
+            cpk = min(
+                (ucl - mean) / (3 * std),
+                (mean - lcl) / (3 * std)
+            )
+            ca = abs(mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
+
+        rows.append({
+            "Factor": k,
+            "Min": round(vmin, 2),
+            "Max": round(vmax, 2),
+            "Mean": round(mean, 2),
+            "Std Dev": round(std, 2),
+            "Ca": round(ca, 2) if ca is not None else "",
+            "Cp": round(cp, 2) if cp is not None else "",
+            "Cpk": round(cpk, 2) if cpk is not None else "",
+            "n (batches)": n
+        })
+    return pd.DataFrame(rows)
 
 # =========================
 # PLOT FUNCTIONS
@@ -178,13 +219,13 @@ def spc_combined(lab, line, title, lab_lim, line_lim):
     fig.subplots_adjust(right=0.78)
     return fig
 
-def spc_single(spc_df, title, limit, color, marker):
+def spc_single(df_spc, title, limit, color, marker):
     fig, ax = plt.subplots(figsize=(12, 4))
 
-    mean = spc_df["value"].mean()
-    std = spc_df["value"].std()
+    mean = df_spc["value"].mean()
+    std = df_spc["value"].std()
 
-    ax.plot(spc_df["製造批號"], spc_df["value"],
+    ax.plot(df_spc["製造批號"], df_spc["value"],
             marker=marker, linestyle="-",
             color=color)
 
@@ -206,6 +247,12 @@ def spc_single(spc_df, title, limit, color, marker):
 # DASHBOARD
 # =========================
 st.title(f"🎨 SPC Color Dashboard — {color}")
+
+st.markdown("### 📋 SPC Summary Statistics (LINE)")
+st.dataframe(build_summary("line", "LINE"), use_container_width=True, hide_index=True)
+
+st.markdown("### 📋 SPC Summary Statistics (LAB)")
+st.dataframe(build_summary("lab", "LAB"), use_container_width=True, hide_index=True)
 
 st.markdown("### 📊 COMBINED SPC")
 for k in spc:
