@@ -20,9 +20,6 @@ st.set_page_config(
 DATA_URL = "https://docs.google.com/spreadsheets/d/1lqsLKSoDTbtvAsHzJaEri8tPo5pA3vqJ__LVHp2R534/export?format=csv"
 LIMIT_URL = "https://docs.google.com/spreadsheets/d/1jbP8puBraQ5Xgs9oIpJ7PlLpjIK3sltrgbrgKUcJ-Qo/export?format=csv"
 
-# =========================
-# LOAD DATA
-# =========================
 @st.cache_data(ttl=300)
 def load_data():
     df = pd.read_csv(DATA_URL)
@@ -37,74 +34,38 @@ df = load_data()
 limit_df = load_limit()
 
 # =========================
-# FIX COLUMN NAMES
-# =========================
-df.columns = (
-    df.columns.str.replace(r"\s+", " ", regex=True).str.strip()
-)
-
-# =========================
-# SIDEBAR FILTER
+# FILTER
 # =========================
 st.sidebar.title("🎨 Filter")
-
-color = st.sidebar.selectbox(
-    "Color code",
-    sorted(df["塗料編號"].dropna().unique())
-)
-
+color = st.sidebar.selectbox("Color code", sorted(df["塗料編號"].dropna().unique()))
 df = df[df["塗料編號"] == color]
 
-year = st.sidebar.selectbox(
-    "Year",
-    sorted(df["Time"].dt.year.unique())
-)
-
-month = st.sidebar.multiselect(
-    "Month (optional)",
-    sorted(df["Time"].dt.month.unique())
-)
-
+year = st.sidebar.selectbox("Year", sorted(df["Time"].dt.year.unique()))
 df = df[df["Time"].dt.year == year]
-if month:
-    df = df[df["Time"].dt.month.isin(month)]
 
 # =========================
-# GET LIMIT (FIXED)
+# LIMIT FUNCTION
 # =========================
 def get_limit(color, factor, mode):
     row = limit_df[limit_df["Color_code"] == color]
     if row.empty:
         return None, None
-
-    lcl_col = f"{factor} {mode} LCL"
-    ucl_col = f"{factor} {mode} UCL"
-
-    lcl = row[lcl_col].iloc[0] if lcl_col in row.columns else None
-    ucl = row[ucl_col].iloc[0] if ucl_col in row.columns else None
-
-    return lcl, ucl
+    return (
+        row.get(f"{mode} {factor} LCL", [None]).values[0],
+        row.get(f"{mode} {factor} UCL", [None]).values[0]
+    )
 
 # =========================
-# PREP SPC DATA
+# PREP DATA
 # =========================
 def prep_spc(df, north, south):
     tmp = df.copy()
     tmp["value"] = tmp[[north, south]].mean(axis=1)
-    return tmp.groupby("製造批號", as_index=False).agg(
-        Time=("Time", "min"),
-        value=("value", "mean")
-    )
+    return tmp.groupby("製造批號", as_index=False).agg(value=("value", "mean"))
 
 def prep_lab(df, col):
-    return df.groupby("製造批號", as_index=False).agg(
-        Time=("Time", "min"),
-        value=(col, "mean")
-    )
+    return df.groupby("製造批號", as_index=False).agg(value=(col, "mean"))
 
-# =========================
-# SPC DATA
-# =========================
 spc = {
     "ΔL": {
         "lab": prep_lab(df, "入料檢測 ΔL 正面"),
@@ -121,128 +82,89 @@ spc = {
 }
 
 # =========================
-# SPC SINGLE (LAB / LINE)
+# CORE PLOT FUNCTION (OOS HIGHLIGHT)
 # =========================
-def spc_single(spc_df, title, limit, base_color, marker):
+def plot_series(ax, df, lcl, ucl, color, label, marker):
+    for _, r in df.iterrows():
+        v = r["value"]
+        batch = r["製造批號"]
+        oos = (lcl is not None and (v < lcl or v > ucl))
+        ax.scatter(
+            batch, v,
+            color="red" if oos else color,
+            marker=marker,
+            s=80,
+            zorder=3
+        )
+        if oos:
+            ax.text(batch, v, f"{batch}\n{v:.2f}",
+                    fontsize=8, color="red",
+                    ha="center", va="bottom")
+
+# =========================
+# COMBINED SPC
+# =========================
+st.markdown("### 📊 COMBINED SPC")
+
+for k in spc:
+    lab = spc[k]["lab"]
+    line = spc[k]["line"]
+    lab_lcl, lab_ucl = get_limit(color, k, "LAB")
+    line_lcl, line_ucl = get_limit(color, k, "LINE")
+
     fig, ax = plt.subplots(figsize=(12, 4))
 
-    mean = spc_df["value"].mean()
-    std = spc_df["value"].std()
+    plot_series(ax, lab, lab_lcl, lab_ucl, "#1f77b4", "LAB", "o")
+    plot_series(ax, line, line_lcl, line_ucl, "#2ca02c", "LINE", "s")
 
-    x = spc_df["製造批號"]
-    y = spc_df["value"]
-    lcl, ucl = limit
+    if lab_lcl is not None:
+        ax.axhline(lab_lcl, color="#1f77b4", linestyle=":")
+        ax.axhline(lab_ucl, color="#1f77b4", linestyle=":")
 
-    for i in range(len(y)):
-        out = (
-            lcl is not None and ucl is not None and
-            (y.iloc[i] < lcl or y.iloc[i] > ucl)
-        )
+    if line_lcl is not None:
+        ax.axhline(line_lcl, color="red")
+        ax.axhline(line_ucl, color="red")
 
-        ax.plot(
-            x.iloc[i],
-            y.iloc[i],
-            marker=marker,
-            linestyle="None",
-            color="red" if out else base_color
-        )
+    ax.set_title(f"COMBINED {k}")
+    ax.grid(True)
+    st.pyplot(fig)
 
-        if out:
-            ax.text(
-                x.iloc[i],
-                y.iloc[i],
-                f"{y.iloc[i]:.2f}",
-                color="red",
-                fontsize=9,
-                ha="center",
-                va="bottom"
-            )
+# =========================
+# LAB SPC
+# =========================
+st.markdown("### 🧪 LAB SPC")
 
-    ax.plot(x, y, "-", color=base_color, alpha=0.5)
+for k in spc:
+    lab = spc[k]["lab"]
+    lcl, ucl = get_limit(color, k, "LAB")
 
-    ax.axhline(mean + 3 * std, color="orange", linestyle="--")
-    ax.axhline(mean - 3 * std, color="orange", linestyle="--")
+    fig, ax = plt.subplots(figsize=(12, 4))
+    plot_series(ax, lab, lcl, ucl, "#1f77b4", "LAB", "o")
 
     if lcl is not None:
         ax.axhline(lcl, color="red")
         ax.axhline(ucl, color="red")
 
-    ax.set_title(title)
+    ax.set_title(f"LAB {k}")
     ax.grid(True)
-    ax.tick_params(axis="x", rotation=45)
-
-    return fig
+    st.pyplot(fig)
 
 # =========================
-# SPC COMBINED
+# LINE SPC
 # =========================
-def spc_combined(lab, line, title, lab_lim, line_lim):
-    fig, ax = plt.subplots(figsize=(12, 4))
-
-    mean = line["value"].mean()
-    std = line["value"].std()
-
-    # LAB
-    for x, y in zip(lab["製造批號"], lab["value"]):
-        out = lab_lim[0] is not None and (y < lab_lim[0] or y > lab_lim[1])
-        ax.plot(x, y, marker="o", linestyle="None",
-                color="red" if out else "#1f77b4")
-        if out:
-            ax.text(x, y, f"{y:.2f}", color="red", fontsize=9)
-
-    ax.plot(lab["製造批號"], lab["value"], "-", color="#1f77b4", alpha=0.5, label="LAB")
-
-    # LINE
-    for x, y in zip(line["製造批號"], line["value"]):
-        out = line_lim[0] is not None and (y < line_lim[0] or y > line_lim[1])
-        ax.plot(x, y, marker="s", linestyle="None",
-                color="red" if out else "#2ca02c")
-        if out:
-            ax.text(x, y, f"{y:.2f}", color="red", fontsize=9)
-
-    ax.plot(line["製造批號"], line["value"], "-", color="#2ca02c", alpha=0.5, label="LINE")
-
-    ax.axhline(mean + 3 * std, color="orange", linestyle="--")
-    ax.axhline(mean - 3 * std, color="orange", linestyle="--")
-
-    ax.legend()
-    ax.grid(True)
-    ax.tick_params(axis="x", rotation=45)
-
-    return fig
-
-# =========================
-# DASHBOARD
-# =========================
-st.title(f"🎨 SPC Color Dashboard — {color}")
+st.markdown("### 🏭 LINE SPC")
 
 for k in spc:
-    st.pyplot(
-        spc_combined(
-            spc[k]["lab"],
-            spc[k]["line"],
-            f"COMBINED {k}",
-            get_limit(color, k, "LAB"),
-            get_limit(color, k, "LINE")
-        )
-    )
+    line = spc[k]["line"]
+    lcl, ucl = get_limit(color, k, "LINE")
 
-    st.pyplot(
-        spc_single(
-            spc[k]["lab"],
-            f"LAB {k}",
-            get_limit(color, k, "LAB"),
-            "#1f77b4",
-            "o"
-        )
-    )
+    fig, ax = plt.subplots(figsize=(12, 4))
+    plot_series(ax, line, lcl, ucl, "#2ca02c", "LINE", "s")
 
-    st.pyplot(
-        spc_single(
-            spc[k]["line"],
-            f"LINE {k}",
-            get_limit(color, k, "LINE"),
-            "#2ca02c",
-            "s"
-        )
-    )
+    if lcl is not None:
+        ax.axhline(lcl, color="red")
+        ax.axhline(ucl, color="red")
+
+    ax.set_title(f"LINE {k}")
+    ax.grid(True)
+    st.pyplot(fig)
