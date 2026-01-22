@@ -209,13 +209,11 @@ st.markdown(
 summary_rows = []
 
 for k in spc:
-    values = spc[k]["line"]["value"].dropna()
-    mean = values.mean()
-    std = values.std()
-    n = values.count()
-
-    v_min = values.min()
-    v_max = values.max()
+    # ===== LINE (SPC chính) =====
+    line_values = spc[k]["line"]["value"].dropna()
+    mean = line_values.mean()
+    std = line_values.std()
+    n = line_values.count()
 
     lcl, ucl = get_limit(color, k, "LINE")
 
@@ -228,17 +226,32 @@ for k in spc:
         )
         ca = abs(mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
 
+    # ===== LAB (chỉ tham chiếu) =====
+    lab_values = spc[k]["lab"]["value"].dropna()
+    lab_min = lab_values.min()
+    lab_max = lab_values.max()
+    lab_std = lab_values.std()
+
     summary_rows.append({
         "Factor": k,
-        "Min": round(v_min, 2),
-        "Max": round(v_max, 2),
-        "Mean": round(mean, 2),
-        "Std Dev": round(std, 2),
+
+        # LINE
+        "LINE Mean": round(mean, 2),
+        "LINE Std Dev": round(std, 2),
+
+        # LAB reference
+        "LAB Min": round(lab_min, 2),
+        "LAB Max": round(lab_max, 2),
+        "LAB Std Dev": round(lab_std, 2),
+
+        # Capability – LINE ONLY
         "Ca": round(ca, 2) if ca is not None else "",
         "Cp": round(cp, 2) if cp is not None else "",
         "Cpk": round(cpk, 2) if cpk is not None else "",
+
         "n (batches)": n
     })
+
 
 summary_df = pd.DataFrame(summary_rows)
 
@@ -437,4 +450,5 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
