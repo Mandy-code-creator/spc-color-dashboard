@@ -13,6 +13,30 @@ st.set_page_config(
     page_icon="🎨",
     layout="wide"
 )
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background: linear-gradient(
+            270deg,
+            #ffffff,
+            #f0f9ff,
+            #e0f2fe,
+            #fef3c7,
+            #ecfeff
+        );
+        background-size: 800% 800%;
+        animation: gradientBG 20s ease infinite;
+    }
+    @keyframes gradientBG {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # =========================
 # REFRESH BUTTON
@@ -20,6 +44,20 @@ st.set_page_config(
 if st.button("🔄 Refresh data"):
     st.cache_data.clear()
     st.rerun()
+
+# =========================
+# SIDEBAR STYLE
+# =========================
+st.markdown(
+    """
+    <style>
+    [data-testid="stSidebar"] {
+        background-color: #f6f8fa;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # =========================
 # GOOGLE SHEET LINKS
@@ -56,7 +94,7 @@ df.columns = (
 )
 
 # =========================
-# SIDEBAR FILTER
+# SIDEBAR – FILTER
 # =========================
 st.sidebar.title("🎨 Filter")
 
@@ -83,21 +121,35 @@ df = df[df["Time"].dt.year == year]
 if month:
     df = df[df["Time"].dt.month.isin(month)]
 
+st.sidebar.divider()
+
 # =========================
-# GET LIMIT (FIXED – NO ERROR)
+# LIMIT DISPLAY
 # =========================
-def get_limit(color, factor, mode):
+def show_limits(factor):
+    row = limit_df[limit_df["Color_code"] == color]
+    if row.empty:
+        return
+    table = row.filter(like=factor).copy()
+    for c in table.columns:
+        table[c] = table[c].map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
+    st.sidebar.markdown(f"**{factor} Control Limits**")
+    st.sidebar.dataframe(table, use_container_width=True, hide_index=True)
+
+show_limits("LAB")
+show_limits("LINE")
+
+# =========================
+# LIMIT FUNCTION
+# =========================
+def get_limit(color, prefix, factor):
     row = limit_df[limit_df["Color_code"] == color]
     if row.empty:
         return None, None
-
-    lcl_col = f"{factor} {mode} LCL"
-    ucl_col = f"{factor} {mode} UCL"
-
-    lcl = row[lcl_col].iloc[0] if lcl_col in row.columns else None
-    ucl = row[ucl_col].iloc[0] if ucl_col in row.columns else None
-
-    return lcl, ucl
+    return (
+        row.get(f"{factor} {prefix} LCL", [None]).values[0],
+        row.get(f"{factor} {prefix} UCL", [None]).values[0]
+    )
 
 # =========================
 # PREP SPC DATA
@@ -116,6 +168,9 @@ def prep_lab(df, col):
         value=(col, "mean")
     )
 
+# =========================
+# SPC DATA
+# =========================
 spc = {
     "ΔL": {
         "lab": prep_lab(df, "入料檢測 ΔL 正面"),
@@ -132,74 +187,291 @@ spc = {
 }
 
 # =========================
-# HIGHLIGHT FUNCTION
+# MAIN DASHBOARD
 # =========================
-def highlight_out_of_limit(row, factor, mode):
-    styles = [""] * len(row)
-    lcl, ucl = get_limit(color, factor, mode)
+st.title(f"🎨 SPC Color Dashboard — {color}")
 
-    for i, col in enumerate(row.index):
-        if col == "Min" and lcl is not None and row[col] < lcl:
-            styles[i] = "background-color:#ffcccc"
-        if col == "Max" and ucl is not None and row[col] > ucl:
-            styles[i] = "background-color:#ffcccc"
+if not df.empty:
+    t_min = df["Time"].min().strftime("%Y-%m-%d")
+    t_max = df["Time"].max().strftime("%Y-%m-%d")
+    n_batch = df["製造批號"].nunique()
+else:
+    t_min = t_max = "N/A"
+    n_batch = 0
 
-    return styles
+st.markdown(
+    f"⏱ **{t_min} → {t_max} | n = {n_batch} batches | Year: {year} | Month: {'All' if not month else month}**"
+)
 
-# =========================
-# SUMMARY TABLE
-# =========================
+# ======================================================
+# ======================================================
+# 📋 SPC SUMMARY TABLE (LAB & LINE)
+# ======================================================
 summary_line = []
 summary_lab = []
 
 for k in spc:
-    # LINE
-    v = spc[k]["line"]["value"].dropna()
+    # ===== LINE =====
+    line_values = spc[k]["line"]["value"].dropna()
+    line_mean = line_values.mean()
+    line_std = line_values.std()
+    line_n = line_values.count()
+
+    line_min = line_values.min()
+    line_max = line_values.max()
+
+    lcl, ucl = get_limit(color, k, "LINE")
+
+    ca = cp = cpk = None
+    if line_std > 0 and lcl is not None and ucl is not None:
+        cp = (ucl - lcl) / (6 * line_std)
+        cpk = min(
+            (ucl - line_mean) / (3 * line_std),
+            (line_mean - lcl) / (3 * line_std)
+        )
+        ca = abs(line_mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
+
     summary_line.append({
         "Factor": k,
-        "Min": round(v.min(), 2),
-        "Max": round(v.max(), 2),
-        "Mean": round(v.mean(), 2),
-        "Std Dev": round(v.std(), 2),
-        "n": v.count()
+        "Min": round(line_min, 2),
+        "Max": round(line_max, 2),
+        "Mean": round(line_mean, 2),
+        "Std Dev": round(line_std, 2),
+        "Ca": round(ca, 2) if ca is not None else "",
+        "Cp": round(cp, 2) if cp is not None else "",
+        "Cpk": round(cpk, 2) if cpk is not None else "",
+        "n": line_n
     })
 
-    # LAB
-    v = spc[k]["lab"]["value"].dropna()
+    # ===== LAB =====
+    lab_values = spc[k]["lab"]["value"].dropna()
+    lab_mean = lab_values.mean()
+    lab_std = lab_values.std()
+    lab_n = lab_values.count()
+
+    lab_min = lab_values.min()
+    lab_max = lab_values.max()
+
     summary_lab.append({
         "Factor": k,
-        "Min": round(v.min(), 2),
-        "Max": round(v.max(), 2),
-        "Mean": round(v.mean(), 2),
-        "Std Dev": round(v.std(), 2),
-        "n": v.count()
+        "Min": round(lab_min, 2),
+        "Max": round(lab_max, 2),
+        "Mean": round(lab_mean, 2),
+        "Std Dev": round(lab_std, 2),
+        "n": lab_n
     })
 
 summary_line_df = pd.DataFrame(summary_line)
 summary_lab_df = pd.DataFrame(summary_lab)
 
-styled_line = summary_line_df.style.apply(
-    lambda r: highlight_out_of_limit(r, r["Factor"], "LINE"),
-    axis=1
-).format("{:.2f}", subset=["Min", "Max", "Mean", "Std Dev"])
-
-styled_lab = summary_lab_df.style.apply(
-    lambda r: highlight_out_of_limit(r, r["Factor"], "LAB"),
-    axis=1
-).format("{:.2f}", subset=["Min", "Max", "Mean", "Std Dev"])
-
 # =========================
-# DISPLAY
+# DISPLAY SIDE BY SIDE
 # =========================
-st.title(f"🎨 SPC Color Dashboard — {color}")
 st.markdown("### 📋 SPC Summary Statistics")
 
-c1, c2 = st.columns(2)
+col1, col2 = st.columns(2)
 
-with c1:
+with col1:
     st.markdown("#### 🏭 LINE")
-    st.dataframe(styled_line, use_container_width=True)
+    st.dataframe(summary_line_df, use_container_width=True, hide_index=True)
 
-with c2:
+with col2:
     st.markdown("#### 🧪 LAB")
-    st.dataframe(styled_lab, use_container_width=True)
+    st.dataframe(summary_lab_df, use_container_width=True, hide_index=True)
+
+# =========================
+# SPC CHARTS (GIỮ NGUYÊN)
+# =========================
+def spc_combined(lab, line, title, lab_lim, line_lim):
+    fig, ax = plt.subplots(figsize=(12, 4))
+
+    mean = line["value"].mean()
+    std = line["value"].std()
+
+    ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
+    ax.plot(line["製造批號"], line["value"], "o-", label="LINE", color="#2ca02c")
+
+    ax.axhline(mean + 3 * std, color="orange", linestyle="--", label="+3σ")
+    ax.axhline(mean - 3 * std, color="orange", linestyle="--", label="-3σ")
+
+    if lab_lim[0] is not None:
+        ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":", label="LAB LCL")
+        ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":", label="LAB UCL")
+
+    if line_lim[0] is not None:
+        ax.axhline(line_lim[0], color="red", label="LINE LCL")
+        ax.axhline(line_lim[1], color="red", label="LINE UCL")
+
+    ax.set_title(title)
+    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
+    ax.grid(True)
+    ax.tick_params(axis="x", rotation=45)
+    fig.subplots_adjust(right=0.78)
+    return fig
+
+
+def spc_single(spc, title, limit, color):
+    fig, ax = plt.subplots(figsize=(12, 4))
+
+    mean = spc["value"].mean()
+    std = spc["value"].std()
+
+    ax.plot(spc["製造批號"], spc["value"], "o-", color=color)
+    ax.axhline(mean + 3 * std, color="orange", linestyle="--", label="+3σ")
+    ax.axhline(mean - 3 * std, color="orange", linestyle="--", label="-3σ")
+
+    if limit[0] is not None:
+        ax.axhline(limit[0], color="red", label="LCL")
+        ax.axhline(limit[1], color="red", label="UCL")
+
+    ax.set_title(title)
+    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
+    ax.grid(True)
+    ax.tick_params(axis="x", rotation=45)
+    fig.subplots_adjust(right=0.78)
+    return fig
+
+
+def download(fig, name):
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")
+    buf.seek(0)
+    st.download_button("📥 Download PNG", buf, name, "image/png")
+
+
+# =========================
+# DASHBOARD
+# =========================
+st.markdown("### 📊 COMBINED SPC")
+for k in spc:
+    fig = spc_combined(
+        spc[k]["lab"],
+        spc[k]["line"],
+        f"COMBINED {k}",
+        get_limit(color, k, "LAB"),
+        get_limit(color, k, "LINE")
+    )
+    st.pyplot(fig)
+    download(fig, f"COMBINED_{color}_{k}.png")
+
+st.markdown("---")
+
+st.markdown("### 🧪 LAB SPC")
+for k in spc:
+    fig = spc_single(
+        spc[k]["lab"],
+        f"LAB {k}",
+        get_limit(color, k, "LAB"),
+        "#1f77b4"
+    )
+    st.pyplot(fig)
+    download(fig, f"LAB_{color}_{k}.png")
+
+st.markdown("---")
+
+st.markdown("### 🏭 LINE SPC")
+for k in spc:
+    fig = spc_single(
+        spc[k]["line"],
+        f"LINE {k}",
+        get_limit(color, k, "LINE"),
+        "#2ca02c"
+    )
+    st.pyplot(fig)
+    download(fig, f"LINE_{color}_{k}.png")
+
+
+# =========================
+# DISTRIBUTION DASHBOARD
+# =========================
+st.markdown("---")
+st.markdown("## 📈 Line Process Distribution Dashboard")
+
+def normal_pdf(x, mean, std):
+    return (1 / (std * math.sqrt(2 * math.pi))) * np.exp(
+        -0.5 * ((x - mean) / std) ** 2
+    )
+
+cols = st.columns(3)
+
+for i, k in enumerate(spc):
+    with cols[i]:
+        values = spc[k]["line"]["value"].dropna()
+        mean = values.mean()
+        std = values.std()
+        lcl, ucl = get_limit(color, k, "LINE")
+
+        fig, ax = plt.subplots(figsize=(4, 3))
+
+        bins = np.histogram_bin_edges(values, bins=10)
+        counts, _, patches = ax.hist(
+            values,
+            bins=bins,
+            edgecolor="white",
+            color="#4dabf7"
+        )
+
+        for p, l, r in zip(patches, bins[:-1], bins[1:]):
+            center = (l + r) / 2
+            if lcl is not None and ucl is not None:
+                if center < lcl or center > ucl:
+                    p.set_facecolor("red")
+
+        if std > 0:
+            x = np.linspace(mean - 3 * std, mean + 3 * std, 300)
+            pdf = normal_pdf(x, mean, std)
+            ax.plot(
+                x,
+                pdf * len(values) * (bins[1] - bins[0]),
+                color="black"
+            )
+
+        ax.set_title(k)
+        ax.grid(axis="y", alpha=0.3)
+        st.pyplot(fig)
+st.markdown("---")
+st.markdown("## 📈 LAB Process Distribution Dashboard")
+
+cols = st.columns(3)
+
+for i, k in enumerate(spc):
+    with cols[i]:
+        values = spc[k]["lab"]["value"].dropna()
+        mean = values.mean()
+        std = values.std()
+        lcl, ucl = get_limit(color, k, "LAB")
+
+        fig, ax = plt.subplots(figsize=(4, 3))
+
+        bins = np.histogram_bin_edges(values, bins=10)
+        counts, _, patches = ax.hist(
+            values,
+            bins=bins,
+            edgecolor="white",
+            color="#1f77b4"
+        )
+
+        # Highlight out-of-spec bins
+        for p, l, r in zip(patches, bins[:-1], bins[1:]):
+            center = (l + r) / 2
+            if lcl is not None and ucl is not None:
+                if center < lcl or center > ucl:
+                    p.set_facecolor("red")
+
+        # Normal curve
+        if std > 0:
+            x = np.linspace(mean - 3 * std, mean + 3 * std, 300)
+            pdf = normal_pdf(x, mean, std)
+            ax.plot(
+                x,
+                pdf * len(values) * (bins[1] - bins[0]),
+                color="black"
+            )
+
+        ax.set_title(f"{k} (LAB)")
+        ax.grid(axis="y", alpha=0.3)
+
+        st.pyplot(fig)
+
+
+
