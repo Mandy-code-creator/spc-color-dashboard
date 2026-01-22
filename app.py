@@ -206,8 +206,12 @@ st.markdown(
 # ======================================================
 # =========================
 # =========================
+# =========================
 # SPC SUMMARY TABLES
 # =========================
+def fmt(x):
+    return "" if pd.isna(x) else f"{x:.2f}"
+
 line_rows = []
 lab_rows = []
 
@@ -232,25 +236,61 @@ for k in spc:
 
     line_rows.append({
         "Factor": k,
-        "Min": line_min,
-        "Max": line_max,
-        "Std Dev": line_std,
-        "Ca": ca,
-        "Cp": cp,
-        "Cpk": cpk
+        "Min": fmt(line_min),
+        "Max": fmt(line_max),
+        "Std Dev": fmt(line_std),
+        "Ca": fmt(ca),
+        "Cp": fmt(cp),
+        "Cpk": fmt(cpk),
     })
 
     # ---------- LAB ----------
     lab_values = spc[k]["lab"]["value"].dropna()
     lab_rows.append({
         "Factor": k,
-        "Min": lab_values.min(),
-        "Max": lab_values.max(),
-        "Std Dev": lab_values.std()
+        "Min": fmt(lab_values.min()),
+        "Max": fmt(lab_values.max()),
+        "Std Dev": fmt(lab_values.std()),
     })
 
-line_df = pd.DataFrame(line_rows).round(2)
-lab_df = pd.DataFrame(lab_rows).round(2)
+line_df = pd.DataFrame(line_rows)
+lab_df = pd.DataFrame(lab_rows)
+
+# =========================
+# DISPLAY – SIDE BY SIDE
+# =========================
+st.markdown(
+    """
+    <style>
+    .center-table td, .center-table th {
+        text-align: center !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+st.markdown("### 📋 SPC Summary")
+
+c1, c2 = st.columns(2)
+
+with c1:
+    st.markdown("#### 🏭 LINE")
+    st.dataframe(
+        line_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config=None
+    )
+
+with c2:
+    st.markdown("#### 🧪 LAB")
+    st.dataframe(
+        lab_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config=None
+    )
 
 # =========================
 # DISPLAY – SIDE BY SIDE
@@ -501,6 +541,7 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
 
 
