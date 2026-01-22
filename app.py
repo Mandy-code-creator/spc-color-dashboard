@@ -39,41 +39,7 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-st.markdown(
-    """
-    <style>
-    .subtle-indicator {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 14px;
-        color: #475569;
-        margin-bottom: 8px;
-    }
 
-    .subtle-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background-color: #22c55e;
-        animation: pulseMove 3s ease-in-out infinite;
-        position: relative;
-    }
-
-    @keyframes pulseMove {
-        0%   { transform: translateX(0); opacity: 0.6; }
-        50%  { transform: translateX(16px); opacity: 1; }
-        100% { transform: translateX(0); opacity: 0.6; }
-    }
-    </style>
-
-    <div class="subtle-indicator">
-        <div class="subtle-dot"></div>
-        <span>SPC monitoring active</span>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 
 
 
@@ -429,6 +395,7 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
 
 
