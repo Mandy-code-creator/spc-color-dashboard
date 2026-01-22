@@ -98,7 +98,7 @@ if month:
     df = df[df["Time"].dt.month.isin(month)]
 
 # =========================
-# 🔥 GLOBAL TITLE + TIME RANGE (NEW – GUARANTEED)
+# 🔥 GLOBAL TITLE + TIME RANGE
 # =========================
 if not df.empty:
     t_min = df["Time"].min().strftime("%Y-%m-%d")
@@ -165,8 +165,41 @@ def prep_lab(df, col):
         value=(col, "mean")
     )
 
+spc = {
+    "ΔL": {
+        "lab": prep_lab(df, "入料檢測 ΔL 正面"),
+        "line": prep_spc(df, "正-北 ΔL", "正-南 ΔL")
+    },
+    "Δa": {
+        "lab": prep_lab(df, "入料檢測 Δa 正面"),
+        "line": prep_spc(df, "正-北 Δa", "正-南 Δa")
+    },
+    "Δb": {
+        "lab": prep_lab(df, "入料檢測 Δb 正面"),
+        "line": prep_spc(df, "正-北 Δb", "正-南 Δb")
+    }
+}
+
 # =========================
-# SPC CHARTS (GIỮ NGUYÊN 100%)
+# 📋 SPC SUMMARY TABLE (LINE)
+# =========================
+summary_rows = []
+for k in spc:
+    values = spc[k]["line"]["value"].dropna()
+    summary_rows.append({
+        "Factor": k,
+        "Mean": round(values.mean(), 4),
+        "Std Dev": round(values.std(), 4),
+        "n (batches)": values.count()
+    })
+
+summary_df = pd.DataFrame(summary_rows)
+
+st.markdown("### 📋 SPC Summary Statistics (LINE)")
+st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+# =========================
+# SPC CHARTS (GIỮ NGUYÊN)
 # =========================
 def spc_combined(lab, line, title, lab_lim, line_lim):
     fig, ax = plt.subplots(figsize=(12, 4))
@@ -213,24 +246,6 @@ def spc_single(spc, title, limit, color):
     ax.tick_params(axis="x", rotation=45)
     fig.subplots_adjust(right=0.78)
     return fig
-
-# =========================
-# PREP DATA
-# =========================
-spc = {
-    "ΔL": {
-        "lab": prep_lab(df, "入料檢測 ΔL 正面"),
-        "line": prep_spc(df, "正-北 ΔL", "正-南 ΔL")
-    },
-    "Δa": {
-        "lab": prep_lab(df, "入料檢測 Δa 正面"),
-        "line": prep_spc(df, "正-北 Δa", "正-南 Δa")
-    },
-    "Δb": {
-        "lab": prep_lab(df, "入料檢測 Δb 正面"),
-        "line": prep_spc(df, "正-北 Δb", "正-南 Δb")
-    }
-}
 
 # =========================
 # MAIN DASHBOARD (GIỮ NGUYÊN)
