@@ -252,7 +252,6 @@ for k in spc:
         "n (batches)": n
     })
 
-
 summary_df = pd.DataFrame(summary_rows)
 
 st.markdown("### 📋 SPC Summary Statistics (LINE)")
@@ -450,5 +449,6 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
 
