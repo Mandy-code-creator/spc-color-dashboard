@@ -39,6 +39,28 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+st.markdown(
+    """
+    <style>
+    .moving-icon {
+        font-size: 40px;
+        position: relative;
+        animation: moveSide 4s ease-in-out infinite;
+        width: fit-content;
+    }
+
+    @keyframes moveSide {
+        0%   { left: 0; }
+        50%  { left: 300px; }
+        100% { left: 0; }
+    }
+    </style>
+
+    <div class="moving-icon">🎨</div>
+    """,
+    unsafe_allow_html=True
+)
+
 
 # =========================
 # REFRESH BUTTON (TOP)
@@ -392,6 +414,7 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
 
 
