@@ -141,7 +141,7 @@ show_limits("LAB")
 show_limits("LINE")
 
 # =========================
-# LIMIT FUNCTION (FIXED)
+# LIMIT FUNCTION
 # =========================
 def get_limit(color, factor, prefix):
     row = limit_df[limit_df["Color_code"] == color]
@@ -197,62 +197,67 @@ spc = {
 st.title(f"🎨 SPC Color Dashboard — {color}")
 
 # ======================================================
-# 📋 SPC SUMMARY STATISTICS (LINE + LAB)
+# 📋 SPC SUMMARY STATISTICS (2 TABLES)
 # ======================================================
 summary_rows = []
 
 for k in spc:
-    line_values = spc[k]["line"]["value"].dropna()
-    lab_values = spc[k]["lab"]["value"].dropna()
-
-    line_mean = line_values.mean()
-    line_std = line_values.std()
-    line_min = line_values.min()
-    line_max = line_values.max()
-    n = line_values.count()
-
-    lab_mean = lab_values.mean()
-    lab_std = lab_values.std()
-    lab_min = lab_values.min()
-    lab_max = lab_values.max()
+    line_vals = spc[k]["line"]["value"].dropna()
+    lab_vals = spc[k]["lab"]["value"].dropna()
 
     lcl, ucl = get_limit(color, k, "LINE")
 
     ca = cp = cpk = None
-    if line_std > 0 and lcl is not None and ucl is not None:
-        cp = (ucl - lcl) / (6 * line_std)
+    if line_vals.std() > 0 and lcl is not None and ucl is not None:
+        cp = (ucl - lcl) / (6 * line_vals.std())
         cpk = min(
-            (ucl - line_mean) / (3 * line_std),
-            (line_mean - lcl) / (3 * line_std)
+            (ucl - line_vals.mean()) / (3 * line_vals.std()),
+            (line_vals.mean() - lcl) / (3 * line_vals.std())
         )
-        ca = abs(line_mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
+        ca = abs(line_vals.mean() - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
 
     summary_rows.append({
         "Factor": k,
 
-        "Line Min": round(line_min, 2),
-        "Line Max": round(line_max, 2),
-        "Line Mean": round(line_mean, 2),
-        "Line Std": round(line_std, 2),
+        "Line Min": line_vals.min(),
+        "Line Max": line_vals.max(),
+        "Line Mean": line_vals.mean(),
+        "Line Std": line_vals.std(),
 
-        "LAB Min": round(lab_min, 2),
-        "LAB Max": round(lab_max, 2),
-        "LAB Mean": round(lab_mean, 2),
-        "LAB Std": round(lab_std, 2),
+        "LAB Min": lab_vals.min(),
+        "LAB Max": lab_vals.max(),
+        "LAB Mean": lab_vals.mean(),
+        "LAB Std": lab_vals.std(),
 
-        "Ca (LINE)": round(ca, 2) if ca is not None else "",
-        "Cp (LINE)": round(cp, 2) if cp is not None else "",
-        "Cpk (LINE)": round(cpk, 2) if cpk is not None else "",
+        "Ca (LINE)": ca,
+        "Cp (LINE)": cp,
+        "Cpk (LINE)": cpk,
 
-        "n (batches)": n
+        "n (batches)": line_vals.count()
     })
 
-summary_df = pd.DataFrame(summary_rows)
+summary_df = pd.DataFrame(summary_rows).round(2)
 
-st.markdown("### 📋 SPC Summary Statistics (LINE + LAB)")
-st.dataframe(summary_df, use_container_width=True, hide_index=True)
+st.markdown("### 📋 SPC Summary Statistics")
+col1, col2 = st.columns(2)
 
-# =========================
-# (PHẦN BIỂU ĐỒ & DISTRIBUTION GIỮ NGUYÊN – KHÔNG ĐỔI)
-# =========================
-# 👉 phần này của bạn đã đúng nên KHÔNG ĐỤNG NỮA
+with col1:
+    st.markdown("#### 🏭 LINE")
+    st.dataframe(
+        summary_df[
+            ["Factor","Line Min","Line Max","Line Mean","Line Std",
+             "Ca (LINE)","Cp (LINE)","Cpk (LINE)","n (batches)"]
+        ],
+        use_container_width=True,
+        hide_index=True
+    )
+
+with col2:
+    st.markdown("#### 🧪 LAB")
+    st.dataframe(
+        summary_df[
+            ["Factor","LAB Min","LAB Max","LAB Mean","LAB Std","n (batches)"]
+        ],
+        use_container_width=True,
+        hide_index=True
+    )
