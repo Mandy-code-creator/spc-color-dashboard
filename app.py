@@ -125,7 +125,7 @@ show_limits("LAB")
 show_limits("LINE")
 
 # =========================
-# LIMIT FUNCTION (FIXED)
+# LIMIT FUNCTION
 # =========================
 def get_limit(color, factor, source):
     row = limit_df[limit_df["Color_code"] == color]
