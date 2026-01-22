@@ -350,7 +350,7 @@ for k in spc:
 # DISTRIBUTION DASHBOARD
 # =========================
 st.markdown("---")
-st.markdown("## 📈 Process Distribution Dashboard")
+st.markdown("## 📈 Line Process Distribution Dashboard")
 
 def normal_pdf(x, mean, std):
     return (1 / (std * math.sqrt(2 * math.pi))) * np.exp(
@@ -437,3 +437,4 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
