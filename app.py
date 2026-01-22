@@ -155,18 +155,6 @@ def get_limit(color, prefix, factor):
         row.get(f"{factor} {prefix} LCL", [None]).values[0],
         row.get(f"{factor} {prefix} UCL", [None]).values[0]
     )
-# =========================
-# SPEC LIMIT FUNCTION
-# =========================
-def get_spec_limit(color, factor):
-    row = limit_df[limit_df["Color_code"] == color]
-    if row.empty:
-        return None, None
-    return (
-        row.get(f"LINE {factor} LSL", [None]).values[0],
-        row.get(f"LINE {factor} USL", [None]).values[0]
-    )
-
 
 # =========================
 # PREP SPC DATA
@@ -407,6 +395,7 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
 
 
