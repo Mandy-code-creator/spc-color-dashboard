@@ -302,6 +302,47 @@ def download(fig, name):
     fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")
     buf.seek(0)
     st.download_button("📥 Download PNG", buf, name, "image/png")
+# ======================================================
+# 📋 SPC SUMMARY TABLE (LAB)  <<< CHỈ THÊM
+# ======================================================
+summary_rows_lab = []
+
+for k in spc:
+    values = spc[k]["lab"]["value"].dropna()
+    mean = values.mean()
+    std = values.std()
+    n = values.count()
+
+    v_min = values.min()
+    v_max = values.max()
+
+    lcl, ucl = get_limit(color, k, "LAB")
+
+    ca = cp = cpk = None
+    if std > 0 and lcl is not None and ucl is not None:
+        cp = (ucl - lcl) / (6 * std)
+        cpk = min(
+            (ucl - mean) / (3 * std),
+            (mean - lcl) / (3 * std)
+        )
+        ca = abs(mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
+
+    summary_rows_lab.append({
+        "Factor": k,
+        "Min": round(v_min, 2),
+        "Max": round(v_max, 2),
+        "Mean": round(mean, 2),
+        "Std Dev": round(std, 2),
+        "Ca": round(ca, 2) if ca is not None else "",
+        "Cp": round(cp, 2) if cp is not None else "",
+        "Cpk": round(cpk, 2) if cpk is not None else "",
+        "n (batches)": n
+    })
+
+summary_lab_df = pd.DataFrame(summary_rows_lab)
+
+st.markdown("### 📋 SPC Summary Statistics (LAB)")
+st.dataframe(summary_lab_df, use_container_width=True, hide_index=True)
 
 
 # =========================
@@ -437,6 +478,7 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
 
 
