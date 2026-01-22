@@ -204,105 +204,80 @@ st.markdown(
 )
 
 # ======================================================
-# 📋 SPC SUMMARY TABLE (LINE) — CHỈ THÊM MIN / MAX
-# ======================================================
-summary_rows = []
-
-for k in spc:
-    values = spc[k]["line"]["value"].dropna()
-    mean = values.mean()
-    std = values.std()
-    n = values.count()
-
-    v_min = values.min()
-    v_max = values.max()
-
-    lcl, ucl = get_limit(color, k, "LINE")
-
-    ca = cp = cpk = None
-    if std > 0 and lcl is not None and ucl is not None:
-        cp = (ucl - lcl) / (6 * std)
-        cpk = min(
-            (ucl - mean) / (3 * std),
-            (mean - lcl) / (3 * std)
-        )
-        ca = abs(mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
-
-    summary_rows.append({
-        "Factor": k,
-        "Min": round(v_min, 2),
-        "Max": round(v_max, 2),
-        "Mean": round(mean, 2),
-        "Std Dev": round(std, 2),
-        "Ca": round(ca, 2) if ca is not None else "",
-        "Cp": round(cp, 2) if cp is not None else "",
-        "Cpk": round(cpk, 2) if cpk is not None else "",
-        "n (batches)": n
-    })
-
-summary_df = pd.DataFrame(summary_rows)
-
-st.markdown("### 📋 SPC Summary Statistics (LINE)")
-st.dataframe(summary_df, use_container_width=True, hide_index=True)
 # =========================
-# SPC CHARTS (GIỮ NGUYÊN)
+# SUMMARY TABLES
 # =========================
-def spc_combined(lab, line, title, lab_lim, line_lim):
-    fig, ax = plt.subplots(figsize=(12, 4))
 
-    mean = line["value"].mean()
-    std = line["value"].std()
+def calc_line_summary(spc_dict, color):
+    rows = []
+    for k in spc_dict:
+        values = spc_dict[k]["line"]["value"].dropna()
+        mean = values.mean()
+        std = values.std()
 
-    ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
-    ax.plot(line["製造批號"], line["value"], "o-", label="LINE", color="#2ca02c")
+        lcl, ucl = get_limit(color, k, "LINE")
 
-    ax.axhline(mean + 3 * std, color="orange", linestyle="--", label="+3σ")
-    ax.axhline(mean - 3 * std, color="orange", linestyle="--", label="-3σ")
+        Ca = Cp = Cpk = np.nan
+        if std > 0 and lcl is not None and ucl is not None:
+            Ca = abs((mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2))
+            Cp = (ucl - lcl) / (6 * std)
+            Cpk = min((ucl - mean) / (3 * std), (mean - lcl) / (3 * std))
 
-    if lab_lim[0] is not None:
-        ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":", label="LAB LCL")
-        ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":", label="LAB UCL")
+        rows.append({
+            "Item": k,
+            "Max": values.max(),
+            "Min": values.min(),
+            "Stdev": std,
+            "Ca": Ca,
+            "Cp": Cp,
+            "Cpk": Cpk
+        })
 
-    if line_lim[0] is not None:
-        ax.axhline(line_lim[0], color="red", label="LINE LCL")
-        ax.axhline(line_lim[1], color="red", label="LINE UCL")
-
-    ax.set_title(title)
-    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
-    ax.grid(True)
-    ax.tick_params(axis="x", rotation=45)
-    fig.subplots_adjust(right=0.78)
-    return fig
-
-
-def spc_single(spc, title, limit, color):
-    fig, ax = plt.subplots(figsize=(12, 4))
-
-    mean = spc["value"].mean()
-    std = spc["value"].std()
-
-    ax.plot(spc["製造批號"], spc["value"], "o-", color=color)
-    ax.axhline(mean + 3 * std, color="orange", linestyle="--", label="+3σ")
-    ax.axhline(mean - 3 * std, color="orange", linestyle="--", label="-3σ")
-
-    if limit[0] is not None:
-        ax.axhline(limit[0], color="red", label="LCL")
-        ax.axhline(limit[1], color="red", label="UCL")
-
-    ax.set_title(title)
-    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
-    ax.grid(True)
-    ax.tick_params(axis="x", rotation=45)
-    fig.subplots_adjust(right=0.78)
-    return fig
+    df = pd.DataFrame(rows)
+    num_cols = df.columns.drop("Item")
+    df[num_cols] = df[num_cols].round(2)
+    return df
 
 
-def download(fig, name):
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")
-    buf.seek(0)
-    st.download_button("📥 Download PNG", buf, name, "image/png")
+def calc_lab_summary(spc_dict):
+    rows = []
+    for k in spc_dict:
+        values = spc_dict[k]["lab"]["value"].dropna()
+        rows.append({
+            "Item": k,
+            "Max": values.max(),
+            "Min": values.min(),
+            "Stdev": values.std()
+        })
 
+    df = pd.DataFrame(rows)
+    num_cols = df.columns.drop("Item")
+    df[num_cols] = df[num_cols].round(2)
+    return df
+
+
+line_df = calc_line_summary(spc, color)
+lab_df = calc_lab_summary(spc)
+
+st.markdown("### 📋 SPC Summary")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("#### 🏭 LINE Summary")
+    st.dataframe(
+        line_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+with col2:
+    st.markdown("#### 🧪 LAB Summary")
+    st.dataframe(
+        lab_df,
+        use_container_width=True,
+        hide_index=True
+    )
 
 # =========================
 # DASHBOARD
@@ -437,4 +412,5 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
