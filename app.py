@@ -94,6 +94,15 @@ df.columns = (
     .str.strip()
 )
 
+limit_df.columns = (
+    limit_df.columns
+    .str.replace("\r\n", " ", regex=False)
+    .str.replace("\n", " ", regex=False)
+    .str.replace("　", " ", regex=False)
+    .str.replace(r"\s+", " ", regex=True)
+    .str.strip()
+)
+
 # =========================
 # SIDEBAR – FILTER
 # =========================
@@ -122,17 +131,25 @@ df = df[df["Time"].dt.year == year]
 if month:
     df = df[df["Time"].dt.month.isin(month)]
 
+if df.empty:
+    st.warning("No data available for this selection.")
+    st.stop()
+
 # =========================
-# LIMIT FUNCTION
+# SAFE LIMIT FUNCTION (FIXED)
 # =========================
 def get_limit(color, factor, source):
     row = limit_df[limit_df["Color_code"] == color]
     if row.empty:
         return None, None
-    return (
-        row.get(f"{factor} {source} LCL", [None]).values[0],
-        row.get(f"{factor} {source} UCL", [None]).values[0]
-    )
+
+    lcl_col = f"{factor} {source} LCL"
+    ucl_col = f"{factor} {source} UCL"
+
+    lcl = row[lcl_col].iloc[0] if lcl_col in row.columns else None
+    ucl = row[ucl_col].iloc[0] if ucl_col in row.columns else None
+
+    return lcl, ucl
 
 # =========================
 # PREP SPC DATA
@@ -170,7 +187,7 @@ spc = {
 }
 
 # =========================
-# MAIN TITLE
+# TITLE
 # =========================
 st.title(f"🎨 SPC Color Dashboard — {color}")
 
