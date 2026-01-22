@@ -472,4 +472,20 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
         st.pyplot(fig)
 
+# =========================
+# LIMIT DISPLAY
+# =========================
+def show_limits(factor):
+    row = limit_df[limit_df["Color_code"] == color]
+    if row.empty:
+        return
+    table = row.filter(like=factor).copy()
+    for c in table.columns:
+        table[c] = table[c].map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
+    st.sidebar.markdown(f"**{factor} Control Limits**")
+    st.sidebar.dataframe(table, use_container_width=True, hide_index=True)
+
+show_limits("LAB")
+show_limits("LINE")
+
 
