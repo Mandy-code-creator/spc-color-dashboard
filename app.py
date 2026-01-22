@@ -47,7 +47,10 @@ limit_df = load_limit()
 # FIX COLUMN NAMES
 # =========================
 df.columns = (
-    df.columns.str.replace("\n", " ")
+    df.columns
+    .str.replace("\r\n", " ", regex=False)
+    .str.replace("\n", " ", regex=False)
+    .str.replace("　", " ", regex=False)
     .str.replace(r"\s+", " ", regex=True)
     .str.strip()
 )
@@ -64,24 +67,37 @@ color = st.sidebar.selectbox(
 
 df = df[df["塗料編號"] == color]
 
+latest_year = df["Time"].dt.year.max()
 year = st.sidebar.selectbox(
     "Year",
-    sorted(df["Time"].dt.year.unique())
+    sorted(df["Time"].dt.year.unique()),
+    index=list(sorted(df["Time"].dt.year.unique())).index(latest_year)
+)
+
+month = st.sidebar.multiselect(
+    "Month (optional)",
+    sorted(df["Time"].dt.month.unique())
 )
 
 df = df[df["Time"].dt.year == year]
+if month:
+    df = df[df["Time"].dt.month.isin(month)]
 
 # =========================
-# LIMIT FUNCTION
+# GET LIMIT (FIXED – NO ERROR)
 # =========================
 def get_limit(color, factor, mode):
     row = limit_df[limit_df["Color_code"] == color]
     if row.empty:
         return None, None
-    return (
-        row.get(f"{factor} {mode} LCL", [None]).values[0],
-        row.get(f"{factor} {mode} UCL", [None]).values[0]
-    )
+
+    lcl_col = f"{factor} {mode} LCL"
+    ucl_col = f"{factor} {mode} UCL"
+
+    lcl = row[lcl_col].iloc[0] if lcl_col in row.columns else None
+    ucl = row[ucl_col].iloc[0] if ucl_col in row.columns else None
+
+    return lcl, ucl
 
 # =========================
 # PREP SPC DATA
@@ -139,15 +155,12 @@ summary_lab = []
 for k in spc:
     # LINE
     v = spc[k]["line"]["value"].dropna()
-    mean, std = v.mean(), v.std()
-    lcl, ucl = get_limit(color, k, "LINE")
-
     summary_line.append({
         "Factor": k,
         "Min": round(v.min(), 2),
         "Max": round(v.max(), 2),
-        "Mean": round(mean, 2),
-        "Std Dev": round(std, 2),
+        "Mean": round(v.mean(), 2),
+        "Std Dev": round(v.std(), 2),
         "n": v.count()
     })
 
@@ -179,7 +192,6 @@ styled_lab = summary_lab_df.style.apply(
 # DISPLAY
 # =========================
 st.title(f"🎨 SPC Color Dashboard — {color}")
-
 st.markdown("### 📋 SPC Summary Statistics")
 
 c1, c2 = st.columns(2)
