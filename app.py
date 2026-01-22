@@ -204,6 +204,81 @@ st.markdown(
 )
 
 # ======================================================
+# =========================
+# SPC SUMMARY TABLES
+# =========================
+line_rows = []
+lab_rows = []
+
+for k in spc:
+    # ---------- LINE ----------
+    line_values = spc[k]["line"]["value"].dropna()
+    line_mean = line_values.mean()
+    line_std = line_values.std()
+    line_min = line_values.min()
+    line_max = line_values.max()
+
+    lcl, ucl = get_limit(color, k, "LINE")
+
+    ca = cp = cpk = ""
+    if line_std > 0 and lcl is not None and ucl is not None:
+        cp = round((ucl - lcl) / (6 * line_std), 2)
+        cpk = round(
+            min(
+                (ucl - line_mean) / (3 * line_std),
+                (line_mean - lcl) / (3 * line_std)
+            ),
+            2
+        )
+        ca = round(
+            abs(line_mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2),
+            2
+        )
+
+    line_rows.append({
+        "Factor": k,
+        "Min": round(line_min, 2),
+        "Max": round(line_max, 2),
+        "Std Dev": round(line_std, 2),
+        "Ca": ca,
+        "Cp": cp,
+        "Cpk": cpk
+    })
+
+    # ---------- LAB ----------
+    lab_values = spc[k]["lab"]["value"].dropna()
+    lab_rows.append({
+        "Factor": k,
+        "Min": round(lab_values.min(), 2),
+        "Max": round(lab_values.max(), 2),
+        "Std Dev": round(lab_values.std(), 2)
+    })
+
+line_df = pd.DataFrame(line_rows)
+lab_df = pd.DataFrame(lab_rows)
+
+# =========================
+# DISPLAY – SIDE BY SIDE
+# =========================
+st.markdown("### 📋 SPC Summary")
+
+c1, c2 = st.columns(2)
+
+with c1:
+    st.markdown("#### 🏭 LINE")
+    st.dataframe(
+        line_df.style.set_properties(**{"text-align": "center"}),
+        use_container_width=True,
+        hide_index=True
+    )
+
+with c2:
+    st.markdown("#### 🧪 LAB")
+    st.dataframe(
+        lab_df.style.set_properties(**{"text-align": "center"}),
+        use_container_width=True,
+        hide_index=True
+    )
 
 # =========================
 # SPC CHARTS (GIỮ NGUYÊN)
@@ -398,4 +473,5 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
