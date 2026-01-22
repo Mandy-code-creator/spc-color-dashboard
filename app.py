@@ -58,6 +58,16 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+st.markdown(
+    """
+    <style>
+    .stDataFrame th, .stDataFrame td {
+        text-align: center !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 # =========================
 # GOOGLE SHEET LINKS
@@ -204,104 +214,72 @@ st.markdown(
 )
 
 # ======================================================
-# 📋 SPC SUMMARY TABLE (LINE) — CHỈ THÊM MIN / MAX
-# ======================================================
-summary_rows = []
+# =========================
+# SUMMARY TABLES
+# =========================
+st.markdown("## 📋 Process Summary")
+
+line_rows = []
+lab_rows = []
 
 for k in spc:
+    # ---------- LINE ----------
     values = spc[k]["line"]["value"].dropna()
     mean = values.mean()
     std = values.std()
-    n = values.count()
-
-    v_min = values.min()
-    v_max = values.max()
-
     lcl, ucl = get_limit(color, k, "LINE")
+    target = 0  # ΔL, Δa, Δb target = 0
 
-    ca = cp = cpk = None
-    if std > 0 and lcl is not None and ucl is not None:
-        cp = (ucl - lcl) / (6 * std)
-        cpk = min(
-            (ucl - mean) / (3 * std),
-            (mean - lcl) / (3 * std)
-        )
-        ca = abs(mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
-
-    summary_rows.append({
-        "Factor": k,
-        "Min": round(v_min, 2),
-        "Max": round(v_max, 2),
-        "Mean": round(mean, 2),
-        "Std Dev": round(std, 2),
-        "Ca": round(ca, 2) if ca is not None else "",
-        "Cp": round(cp, 2) if cp is not None else "",
-        "Cpk": round(cpk, 2) if cpk is not None else "",
-        "n (batches)": n
+    line_rows.append({
+        "Item": k,
+        "Min": values.min(),
+        "Max": values.max(),
+        "Stdev": std,
+        "Ca": calc_ca(mean, target, lcl, ucl),
+        "Cp": calc_cp(std, lcl, ucl),
+        "Cpk": calc_cpk(mean, std, lcl, ucl)
     })
 
-summary_df = pd.DataFrame(summary_rows)
+    # ---------- LAB ----------
+    values_lab = spc[k]["lab"]["value"].dropna()
+    lab_rows.append({
+        "Item": k,
+        "Min": values_lab.min(),
+        "Max": values_lab.max(),
+        "Stdev": values_lab.std()
+    })
 
-st.markdown("### 📋 SPC Summary Statistics (LINE)")
-st.dataframe(summary_df, use_container_width=True, hide_index=True)
+line_df = pd.DataFrame(line_rows)
+lab_df = pd.DataFrame(lab_rows)
+
+# format 2 decimal
+line_df.iloc[:, 1:] = line_df.iloc[:, 1:].applymap(
+    lambda x: f"{x:.2f}" if pd.notnull(x) else ""
+)
+lab_df.iloc[:, 1:] = lab_df.iloc[:, 1:].applymap(
+    lambda x: f"{x:.2f}" if pd.notnull(x) else ""
+)
+
 # =========================
-# SPC CHARTS (GIỮ NGUYÊN)
+# DISPLAY SIDE BY SIDE
 # =========================
-def spc_combined(lab, line, title, lab_lim, line_lim):
-    fig, ax = plt.subplots(figsize=(12, 4))
+col1, col2 = st.columns(2)
 
-    mean = line["value"].mean()
-    std = line["value"].std()
+with col1:
+    st.markdown("### 🏭 LINE Summary")
+    st.dataframe(
+        line_df,
+        use_container_width=True,
+        hide_index=True
+    )
 
-    ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
-    ax.plot(line["製造批號"], line["value"], "o-", label="LINE", color="#2ca02c")
-
-    ax.axhline(mean + 3 * std, color="orange", linestyle="--", label="+3σ")
-    ax.axhline(mean - 3 * std, color="orange", linestyle="--", label="-3σ")
-
-    if lab_lim[0] is not None:
-        ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":", label="LAB LCL")
-        ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":", label="LAB UCL")
-
-    if line_lim[0] is not None:
-        ax.axhline(line_lim[0], color="red", label="LINE LCL")
-        ax.axhline(line_lim[1], color="red", label="LINE UCL")
-
-    ax.set_title(title)
-    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
-    ax.grid(True)
-    ax.tick_params(axis="x", rotation=45)
-    fig.subplots_adjust(right=0.78)
-    return fig
-
-
-def spc_single(spc, title, limit, color):
-    fig, ax = plt.subplots(figsize=(12, 4))
-
-    mean = spc["value"].mean()
-    std = spc["value"].std()
-
-    ax.plot(spc["製造批號"], spc["value"], "o-", color=color)
-    ax.axhline(mean + 3 * std, color="orange", linestyle="--", label="+3σ")
-    ax.axhline(mean - 3 * std, color="orange", linestyle="--", label="-3σ")
-
-    if limit[0] is not None:
-        ax.axhline(limit[0], color="red", label="LCL")
-        ax.axhline(limit[1], color="red", label="UCL")
-
-    ax.set_title(title)
-    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
-    ax.grid(True)
-    ax.tick_params(axis="x", rotation=45)
-    fig.subplots_adjust(right=0.78)
-    return fig
-
-
-def download(fig, name):
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")
-    buf.seek(0)
-    st.download_button("📥 Download PNG", buf, name, "image/png")
+with col2:
+    st.markdown("### 🧪 LAB Summary")
+    st.dataframe(
+        lab_df,
+        use_container_width=True,
+        hide_index=True
+    )
 
 
 # =========================
@@ -437,4 +415,5 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
