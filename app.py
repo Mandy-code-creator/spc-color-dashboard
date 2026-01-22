@@ -195,6 +195,78 @@ spc = {
         "line": prep_spc(df, "正-北 Δb", "正-南 Δb")
     }
 }
+def download(fig, filename):
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+    st.download_button(
+        label=f"⬇ Download {filename}",
+        data=buf.getvalue(),
+        file_name=filename,
+        mime="image/png"
+    )
+
+# =========================
+# SPC PLOT FUNCTIONS
+# =========================
+def spc_single(df, title, limits, color):
+    lcl, ucl = limits
+    fig, ax = plt.subplots(figsize=(10, 4))
+
+    ax.plot(df["Time"], df["value"], marker="o", color=color)
+    ax.axhline(0, linestyle="--", color="gray", linewidth=1)
+
+    if lcl is not None:
+        ax.axhline(lcl, color="red", linestyle="--")
+    if ucl is not None:
+        ax.axhline(ucl, color="red", linestyle="--")
+
+    ax.set_title(title)
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Δ Value")
+    ax.grid(alpha=0.3)
+
+    fig.tight_layout()
+    return fig
+
+
+def spc_combined(lab_df, line_df, title, lab_limits, line_limits):
+    fig, ax = plt.subplots(figsize=(10, 4))
+
+    ax.plot(
+        lab_df["Time"],
+        lab_df["value"],
+        marker="o",
+        label="LAB",
+        color="#1f77b4"
+    )
+    ax.plot(
+        line_df["Time"],
+        line_df["value"],
+        marker="s",
+        label="LINE",
+        color="#2ca02c"
+    )
+
+    lab_lcl, lab_ucl = lab_limits
+    line_lcl, line_ucl = line_limits
+
+    if lab_lcl is not None:
+        ax.axhline(lab_lcl, color="#1f77b4", linestyle="--", alpha=0.5)
+    if lab_ucl is not None:
+        ax.axhline(lab_ucl, color="#1f77b4", linestyle="--", alpha=0.5)
+
+    if line_lcl is not None:
+        ax.axhline(line_lcl, color="#2ca02c", linestyle="--", alpha=0.5)
+    if line_ucl is not None:
+        ax.axhline(line_ucl, color="#2ca02c", linestyle="--", alpha=0.5)
+
+    ax.axhline(0, linestyle=":", color="gray")
+    ax.set_title(title)
+    ax.legend()
+    ax.grid(alpha=0.3)
+
+    fig.tight_layout()
+    return fig
 
 # =========================
 # MAIN DASHBOARD
@@ -436,6 +508,7 @@ for i, k in enumerate(spc):
         ax.grid(axis="y", alpha=0.3)
 
         st.pyplot(fig)
+
 
 
 
