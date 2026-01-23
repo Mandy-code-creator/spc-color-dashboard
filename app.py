@@ -419,31 +419,6 @@ for k in spc:
     st.pyplot(fig)
     download(fig, f"COMBINED_{color}_{k}.png")
 
-st.markdown("---")
-
-st.markdown("### 🧪 LAB SPC")
-for k in spc:
-    fig = spc_single(
-        spc[k]["lab"],
-        f"LAB {k}",
-        get_limit(color, k, "LAB"),
-        "#1f77b4"
-    )
-    st.pyplot(fig)
-    download(fig, f"LAB_{color}_{k}.png")
-
-st.markdown("---")
-
-st.markdown("### 🏭 LINE SPC")
-for k in spc:
-    fig = spc_single(
-        spc[k]["line"],
-        f"LINE {k}",
-        get_limit(color, k, "LINE"),
-        "#2ca02c"
-    )
-    st.pyplot(fig)
-    download(fig, f"LINE_{color}_{k}.png")
 
 
 # =========================
@@ -479,125 +454,263 @@ def normal_pdf(x, mean, std):
 
 
 # =========================
+# =========================
 # LINE PROCESS DISTRIBUTION
 # =========================
 st.markdown("---")
 st.markdown("## 📈 Line Process Distribution Dashboard")
+
+def normal_pdf(x, mean, std):
+    return (1 / (std * math.sqrt(2 * math.pi))) * np.exp(
+        -0.5 * ((x - mean) / std) ** 2
+    )
 
 cols = st.columns(3)
 
 for i, k in enumerate(spc):
     with cols[i]:
         values = spc[k]["line"]["value"].dropna()
+
+        if len(values) < 3:
+            st.warning("Not enough data")
+            continue
+
         mean = values.mean()
         std = values.std()
         lcl, ucl = get_limit(color, k, "LINE")
 
+        # ===== capability (BẮT BUỘC PHẢI Ở ĐÂY) =====
         ca, cp, cpk = calc_capability(values, lcl, ucl)
 
-        fig, ax = plt.subplots(figsize=(4, 3))
+        fig, ax = plt.subplots(figsize=(5, 4))
 
+        # ===== Histogram =====
         bins = np.histogram_bin_edges(values, bins=10)
         counts, _, patches = ax.hist(
             values,
             bins=bins,
             edgecolor="white",
-            color="#4dabf7"
+            color="#4dabf7",
+            alpha=0.85
         )
 
-        # Highlight out-of-spec bins
+        # ===== Highlight out-of-spec bins =====
         for p, l, r in zip(patches, bins[:-1], bins[1:]):
             center = (l + r) / 2
             if lcl is not None and ucl is not None:
                 if center < lcl or center > ucl:
-                    p.set_facecolor("red")
+                    p.set_facecolor("#ff6b6b")
 
-        # Normal curve
+        # ===== Normal curve (long tail) =====
         if std > 0:
-            x = np.linspace(mean - 3 * std, mean + 3 * std, 300)
+            x = np.linspace(mean - 4 * std, mean + 4 * std, 500)
             pdf = normal_pdf(x, mean, std)
             ax.plot(
                 x,
                 pdf * len(values) * (bins[1] - bins[0]),
-                color="black"
+                color="black",
+                linewidth=2
             )
 
-        # Capability box
+        # ===== USL / LSL =====
+        if lcl is not None:
+            ax.axvline(lcl, color="red", linestyle="--", linewidth=1.5, label="LSL")
+        if ucl is not None:
+            ax.axvline(ucl, color="red", linestyle="--", linewidth=1.5, label="USL")
+
+        # ===== Capability box =====
         if cp is not None:
             ax.text(
                 0.98, 0.95,
-                f"Ca={ca}\nCp={cp}\nCpk={cpk}",
+                f"Ca  = {ca}\nCp  = {cp}\nCpk = {cpk}",
                 transform=ax.transAxes,
                 ha="right",
                 va="top",
                 fontsize=9,
-                bbox=dict(facecolor="white", alpha=0.85)
+                bbox=dict(facecolor="white", alpha=0.9)
             )
 
-        ax.set_title(k)
+        # ===== Info box =====
+        ax.text(
+            0.02, 0.95,
+            f"N = {len(values)}\n"
+            f"Mean = {mean:.3f}\n"
+            f"Std = {std:.3f}",
+            transform=ax.transAxes,
+            va="top",
+            fontsize=9,
+            bbox=dict(facecolor="white", alpha=0.9)
+        )
+
+        ax.set_title(f"{k} (LINE)")
         ax.grid(axis="y", alpha=0.3)
+        ax.legend(fontsize=8)
+
+        # ===== SHOW FIG =====
         st.pyplot(fig)
 
+        # =========================
+        # DOWNLOAD IMAGE
+        # =========================
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+        buf.seek(0)
 
+        st.download_button(
+            label="⬇ Download chart image",
+            data=buf,
+            file_name=f"{k}_line_distribution.png",
+            mime="image/png"
+        )
+
+        # =========================
+        # BIN SUMMARY TABLE
+        # =========================
+        bin_edges = np.histogram_bin_edges(values, bins=10)
+        counts, _ = np.histogram(values, bins=bin_edges)
+        bin_width = bin_edges[1] - bin_edges[0]
+
+        bin_df = pd.DataFrame({
+            "Bin Range": [
+                f"{bin_edges[j]:.3f} ~ {bin_edges[j+1]:.3f}"
+                for j in range(len(bin_edges) - 1)
+            ],
+            "Count": counts,
+            "Density": (counts / (len(values) * bin_width)).round(4)
+        })
+
+        with st.expander("📊 Distribution bin details"):
+            st.dataframe(bin_df, use_container_width=True, hide_index=True)
+
+
+# =========================
 # =========================
 # LAB PROCESS DISTRIBUTION
 # =========================
 st.markdown("---")
-st.markdown("## 📈 LAB Process Distribution Dashboard")
+st.markdown("## 🧪 LAB Process Distribution Dashboard")
+
+def normal_pdf(x, mean, std):
+    return (1 / (std * math.sqrt(2 * math.pi))) * np.exp(
+        -0.5 * ((x - mean) / std) ** 2
+    )
 
 cols = st.columns(3)
 
 for i, k in enumerate(spc):
     with cols[i]:
         values = spc[k]["lab"]["value"].dropna()
+
+        if len(values) < 3:
+            st.warning("Not enough data")
+            continue
+
         mean = values.mean()
         std = values.std()
         lcl, ucl = get_limit(color, k, "LAB")
 
+        # ===== capability =====
         ca, cp, cpk = calc_capability(values, lcl, ucl)
 
-        fig, ax = plt.subplots(figsize=(4, 3))
+        fig, ax = plt.subplots(figsize=(5, 4))
 
+        # ===== Histogram =====
         bins = np.histogram_bin_edges(values, bins=10)
         counts, _, patches = ax.hist(
             values,
             bins=bins,
             edgecolor="white",
-            color="#1f77b4"
+            color="#1f77b4",
+            alpha=0.85
         )
 
-        # Highlight out-of-spec bins
+        # ===== Highlight out-of-spec bins =====
         for p, l, r in zip(patches, bins[:-1], bins[1:]):
             center = (l + r) / 2
             if lcl is not None and ucl is not None:
                 if center < lcl or center > ucl:
-                    p.set_facecolor("red")
+                    p.set_facecolor("#ff6b6b")
 
-        # Normal curve
+        # ===== Normal curve (long tail) =====
         if std > 0:
-            x = np.linspace(mean - 3 * std, mean + 3 * std, 300)
+            x = np.linspace(mean - 4 * std, mean + 4 * std, 500)
             pdf = normal_pdf(x, mean, std)
             ax.plot(
                 x,
                 pdf * len(values) * (bins[1] - bins[0]),
-                color="black"
+                color="black",
+                linewidth=2
             )
 
-        # Capability box
+        # ===== USL / LSL =====
+        if lcl is not None:
+            ax.axvline(lcl, color="red", linestyle="--", linewidth=1.5, label="LSL")
+        if ucl is not None:
+            ax.axvline(ucl, color="red", linestyle="--", linewidth=1.5, label="USL")
+
+        # ===== Capability box =====
         if cp is not None:
             ax.text(
                 0.98, 0.95,
-                f"Ca={ca}\nCp={cp}\nCpk={cpk}",
+                f"Ca  = {ca}\nCp  = {cp}\nCpk = {cpk}",
                 transform=ax.transAxes,
                 ha="right",
                 va="top",
                 fontsize=9,
-                bbox=dict(facecolor="white", alpha=0.85)
+                bbox=dict(facecolor="white", alpha=0.9)
             )
+
+        # ===== Info box =====
+        ax.text(
+            0.02, 0.95,
+            f"N = {len(values)}\n"
+            f"Mean = {mean:.3f}\n"
+            f"Std = {std:.3f}",
+            transform=ax.transAxes,
+            va="top",
+            fontsize=9,
+            bbox=dict(facecolor="white", alpha=0.9)
+        )
 
         ax.set_title(f"{k} (LAB)")
         ax.grid(axis="y", alpha=0.3)
+        ax.legend(fontsize=8)
+
+        # ===== SHOW FIG =====
         st.pyplot(fig)
+
+        # =========================
+        # DOWNLOAD IMAGE
+        # =========================
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+        buf.seek(0)
+
+        st.download_button(
+            label="⬇ Download chart image",
+            data=buf,
+            file_name=f"{k}_lab_distribution.png",
+            mime="image/png"
+        )
+
+        # =========================
+        # BIN SUMMARY TABLE
+        # =========================
+        bin_edges = np.histogram_bin_edges(values, bins=10)
+        counts, _ = np.histogram(values, bins=bin_edges)
+        bin_width = bin_edges[1] - bin_edges[0]
+
+        bin_df = pd.DataFrame({
+            "Bin Range": [
+                f"{bin_edges[j]:.3f} ~ {bin_edges[j+1]:.3f}"
+                for j in range(len(bin_edges) - 1)
+            ],
+            "Count": counts,
+            "Density": (counts / (len(values) * bin_width)).round(4)
+        })
+
+        with st.expander("📊 Distribution bin details"):
+            st.dataframe(bin_df, use_container_width=True, hide_index=True)
 
 # =========================
 # 🚨 OUT-OF-CONTROL BATCH TABLE
@@ -640,6 +753,9 @@ if ooc_rows:
     st.dataframe(ooc_df, use_container_width=True)
 else:
     st.success("✅ No out-of-control batches detected")
+
+
+
 
 
 
