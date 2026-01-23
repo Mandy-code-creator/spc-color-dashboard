@@ -10,7 +10,7 @@ import math
 # =========================
 st.set_page_config(
     page_title="SPC Color Dashboard",
-    page_icon="🎨",
+    page_icon="📊",
     layout="wide"
 )
 st.markdown(
@@ -80,6 +80,21 @@ def load_limit():
 
 df = load_data()
 limit_df = load_limit()
+# ===== CHỌN NĂM =====
+df["date"] = pd.to_datetime(df["Time"])
+df["year"] = df["date"].dt.year
+
+all_years = sorted(df["year"].unique())
+latest_year = max(all_years)
+
+selected_years = st.sidebar.multiselect(
+    "📅  Select Year(s)",
+    options=all_years,
+    default=[latest_year]
+)
+
+df = df[df["year"].isin(selected_years)]
+
 
 # =========================
 # FIX COLUMN NAMES
@@ -150,6 +165,38 @@ def get_limit(color, prefix, factor):
         row.get(f"{factor} {prefix} LCL", [None]).values[0],
         row.get(f"{factor} {prefix} UCL", [None]).values[0]
     )
+# =========================
+# OUT-OF-CONTROL DETECTION
+# =========================
+def detect_out_of_control(spc_df, lcl, ucl):
+    """
+    spc_df: DataFrame có cột ['製造批號', 'value']
+    """
+    mean = spc_df["value"].mean()
+    std = spc_df["value"].std()
+
+    result = spc_df.copy()
+
+    result["Rule_CL"] = False
+    result["Rule_3Sigma"] = False
+
+    if lcl is not None and ucl is not None:
+        result["Rule_CL"] = (
+            (result["value"] < lcl) |
+            (result["value"] > ucl)
+        )
+
+    if std > 0:
+        result["Rule_3Sigma"] = (
+            (result["value"] > mean + 3 * std) |
+            (result["value"] < mean - 3 * std)
+        )
+
+    result["Out_of_Control"] = (
+        result["Rule_CL"] | result["Rule_3Sigma"]
+    )
+
+    return result[result["Out_of_Control"]]
 
 # =========================
 # PREP SPC DATA
@@ -189,7 +236,7 @@ spc = {
 # =========================
 # MAIN DASHBOARD
 # =========================
-st.title(f"🎨 SPC Color Dashboard — {color}")
+st.title(f"📊 SPC Color Dashboard — {color}")
 
 if not df.empty:
     t_min = df["Time"].min().strftime("%Y-%m-%d")
@@ -205,7 +252,7 @@ st.markdown(
 
 # ======================================================
 # ======================================================
-# 📋 SPC SUMMARY TABLE (LAB & LINE)
+# 📋 SUMMARY TABLE (LAB & LINE)
 # ======================================================
 summary_line = []
 summary_lab = []
@@ -221,25 +268,12 @@ for k in spc:
     line_max = line_values.max()
 
     lcl, ucl = get_limit(color, k, "LINE")
-
-    ca = cp = cpk = None
-    if line_std > 0 and lcl is not None and ucl is not None:
-        cp = (ucl - lcl) / (6 * line_std)
-        cpk = min(
-            (ucl - line_mean) / (3 * line_std),
-            (line_mean - lcl) / (3 * line_std)
-        )
-        ca = abs(line_mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
-
     summary_line.append({
         "Factor": k,
         "Min": round(line_min, 2),
         "Max": round(line_max, 2),
         "Mean": round(line_mean, 2),
         "Std Dev": round(line_std, 2),
-        "Ca": round(ca, 2) if ca is not None else "",
-        "Cp": round(cp, 2) if cp is not None else "",
-        "Cpk": round(cpk, 2) if cpk is not None else "",
         "n": line_n
     })
 
@@ -267,7 +301,7 @@ summary_lab_df = pd.DataFrame(summary_lab)
 # =========================
 # DISPLAY SIDE BY SIDE
 # =========================
-st.markdown("### 📋 SPC Summary Statistics")
+st.markdown("### 📋 Summary Statistics")
 
 col1, col2 = st.columns(2)
 
@@ -288,12 +322,30 @@ def spc_combined(lab, line, title, lab_lim, line_lim):
     mean = line["value"].mean()
     std = line["value"].std()
 
+    # ===== original lines (GIỮ NGUYÊN) =====
     ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
     ax.plot(line["製造批號"], line["value"], "o-", label="LINE", color="#2ca02c")
 
-    ax.axhline(mean + 3 * std, color="orange", linestyle="--", label="+3σ")
-    ax.axhline(mean - 3 * std, color="orange", linestyle="--", label="-3σ")
+    # ===== highlight LAB out-of-limit =====
+    x_lab = lab["製造批號"]
+    y_lab = lab["value"]
+    LCL_lab, UCL_lab = lab_lim
 
+    if LCL_lab is not None and UCL_lab is not None:
+        out_lab = (y_lab > UCL_lab) | (y_lab < LCL_lab)
+        ax.scatter(x_lab[out_lab], y_lab[out_lab], color="red", s=80, zorder=5)
+
+    # ===== highlight LINE out-of-limit =====
+    x_line = line["製造批號"]
+    y_line = line["value"]
+    LCL_line, UCL_line = line_lim
+
+    if LCL_line is not None and UCL_line is not None:
+        out_line = (y_line > UCL_line) | (y_line < LCL_line)
+        ax.scatter(x_line[out_line], y_line[out_line], color="red", s=80, zorder=5)
+
+    
+    # ===== control limits =====
     if lab_lim[0] is not None:
         ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":", label="LAB LCL")
         ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":", label="LAB UCL")
@@ -307,6 +359,7 @@ def spc_combined(lab, line, title, lab_lim, line_lim):
     ax.grid(True)
     ax.tick_params(axis="x", rotation=45)
     fig.subplots_adjust(right=0.78)
+
     return fig
 
 
@@ -316,19 +369,31 @@ def spc_single(spc, title, limit, color):
     mean = spc["value"].mean()
     std = spc["value"].std()
 
+    # original line
     ax.plot(spc["製造批號"], spc["value"], "o-", color=color)
+
+    # highlight out-of-limit
+    x = spc["製造批號"]
+    y = spc["value"]
+    LCL, UCL = limit
+
+    if LCL is not None and UCL is not None:
+        out = (y > UCL) | (y < LCL)
+        ax.scatter(x[out], y[out], color="red", s=80, zorder=5)
+
     ax.axhline(mean + 3 * std, color="orange", linestyle="--", label="+3σ")
     ax.axhline(mean - 3 * std, color="orange", linestyle="--", label="-3σ")
 
-    if limit[0] is not None:
-        ax.axhline(limit[0], color="red", label="LCL")
-        ax.axhline(limit[1], color="red", label="UCL")
+    if LCL is not None:
+        ax.axhline(LCL, color="red", label="LCL")
+        ax.axhline(UCL, color="red", label="UCL")
 
     ax.set_title(title)
     ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
     ax.grid(True)
     ax.tick_params(axis="x", rotation=45)
     fig.subplots_adjust(right=0.78)
+
     return fig
 
 
@@ -342,7 +407,7 @@ def download(fig, name):
 # =========================
 # DASHBOARD
 # =========================
-st.markdown("### 📊 COMBINED SPC")
+st.markdown("### 📊 CONTROL CHART: LAB-LINE")
 for k in spc:
     fig = spc_combined(
         spc[k]["lab"],
@@ -382,15 +447,42 @@ for k in spc:
 
 
 # =========================
+# =========================
+# =========================
 # DISTRIBUTION DASHBOARD
 # =========================
-st.markdown("---")
-st.markdown("## 📈 Line Process Distribution Dashboard")
+
+def calc_capability(values, lcl, ucl):
+    if lcl is None or ucl is None:
+        return None, None, None
+
+    mean = values.mean()
+    std = values.std()
+
+    if std == 0 or np.isnan(std):
+        return None, None, None
+
+    cp = (ucl - lcl) / (6 * std)
+    cpk = min(
+        (ucl - mean) / (3 * std),
+        (mean - lcl) / (3 * std)
+    )
+    ca = abs(mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
+
+    return round(ca, 2), round(cp, 2), round(cpk, 2)
+
 
 def normal_pdf(x, mean, std):
     return (1 / (std * math.sqrt(2 * math.pi))) * np.exp(
         -0.5 * ((x - mean) / std) ** 2
     )
+
+
+# =========================
+# LINE PROCESS DISTRIBUTION
+# =========================
+st.markdown("---")
+st.markdown("## 📈 Line Process Distribution Dashboard")
 
 cols = st.columns(3)
 
@@ -400,6 +492,8 @@ for i, k in enumerate(spc):
         mean = values.mean()
         std = values.std()
         lcl, ucl = get_limit(color, k, "LINE")
+
+        ca, cp, cpk = calc_capability(values, lcl, ucl)
 
         fig, ax = plt.subplots(figsize=(4, 3))
 
@@ -411,12 +505,14 @@ for i, k in enumerate(spc):
             color="#4dabf7"
         )
 
+        # Highlight out-of-spec bins
         for p, l, r in zip(patches, bins[:-1], bins[1:]):
             center = (l + r) / 2
             if lcl is not None and ucl is not None:
                 if center < lcl or center > ucl:
                     p.set_facecolor("red")
 
+        # Normal curve
         if std > 0:
             x = np.linspace(mean - 3 * std, mean + 3 * std, 300)
             pdf = normal_pdf(x, mean, std)
@@ -426,9 +522,26 @@ for i, k in enumerate(spc):
                 color="black"
             )
 
+        # Capability box
+        if cp is not None:
+            ax.text(
+                0.98, 0.95,
+                f"Ca={ca}\nCp={cp}\nCpk={cpk}",
+                transform=ax.transAxes,
+                ha="right",
+                va="top",
+                fontsize=9,
+                bbox=dict(facecolor="white", alpha=0.85)
+            )
+
         ax.set_title(k)
         ax.grid(axis="y", alpha=0.3)
         st.pyplot(fig)
+
+
+# =========================
+# LAB PROCESS DISTRIBUTION
+# =========================
 st.markdown("---")
 st.markdown("## 📈 LAB Process Distribution Dashboard")
 
@@ -440,6 +553,8 @@ for i, k in enumerate(spc):
         mean = values.mean()
         std = values.std()
         lcl, ucl = get_limit(color, k, "LAB")
+
+        ca, cp, cpk = calc_capability(values, lcl, ucl)
 
         fig, ax = plt.subplots(figsize=(4, 3))
 
@@ -468,10 +583,84 @@ for i, k in enumerate(spc):
                 color="black"
             )
 
+        # Capability box
+        if cp is not None:
+            ax.text(
+                0.98, 0.95,
+                f"Ca={ca}\nCp={cp}\nCpk={cpk}",
+                transform=ax.transAxes,
+                ha="right",
+                va="top",
+                fontsize=9,
+                bbox=dict(facecolor="white", alpha=0.85)
+            )
+
         ax.set_title(f"{k} (LAB)")
         ax.grid(axis="y", alpha=0.3)
-
         st.pyplot(fig)
+
+# =========================
+# 🚨 OUT-OF-CONTROL BATCH TABLE
+# =========================
+st.markdown("## 🚨 Out-of-Control Batches")
+
+ooc_rows = []
+
+for k in spc:
+    # ===== LINE =====
+    lcl, ucl = get_limit(color, k, "LINE")
+    ooc_line = detect_out_of_control(spc[k]["line"], lcl, ucl)
+
+    for _, r in ooc_line.iterrows():
+        ooc_rows.append({
+            "Factor": k,
+            "Type": "LINE",
+            "製造批號": r["製造批號"],
+            "Value": round(r["value"], 2),
+            "Rule_CL": r["Rule_CL"],
+            "Rule_3Sigma": r["Rule_3Sigma"]
+        })
+
+    # ===== LAB =====
+    lcl, ucl = get_limit(color, k, "LAB")
+    ooc_lab = detect_out_of_control(spc[k]["lab"], lcl, ucl)
+
+    for _, r in ooc_lab.iterrows():
+        ooc_rows.append({
+            "Factor": k,
+            "Type": "LAB",
+            "製造批號": r["製造批號"],
+            "Value": round(r["value"], 2),
+            "Rule_CL": r["Rule_CL"],
+            "Rule_3Sigma": r["Rule_3Sigma"]
+        })
+
+if ooc_rows:
+    ooc_df = pd.DataFrame(ooc_rows)
+    st.dataframe(ooc_df, use_container_width=True)
+else:
+    st.success("✅ No out-of-control batches detected")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
