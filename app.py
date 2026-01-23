@@ -755,6 +755,149 @@ else:
     st.success("✅ No out-of-control batches detected")
 
 
+# ======================================================
+# ======================================================
+
+# =========================================================
+# 🎯 CROSS-WEB THICKNESS SPC (LINE ONLY)
+# =====================================================
+# 🔻 BOTTOM DASHBOARD
+# ============================================================
+# CROSS-COIL THICKNESS – COLOR ANALYSIS (BOTTOM)
+# ============================================================
+st.markdown("---")
+st.header("🎨 Thickness – Color Analysis (Per Coil)")
+
+# =========================
+# COLUMN NAMES (FIX CỨNG)
+# =========================
+coil_col = "Coil No."
+time_col = "Time"
+
+thickness_col = "Avergage Thickness"
+
+dE_col = "Average value ΔE 正面"
+dL_col = "Average value ΔL 正面"
+da_col = "Average value Δa 正面"
+db_col = "Average value Δb 正面"
+
+required_cols = [
+    coil_col, time_col,
+    thickness_col,
+    dE_col, dL_col, da_col, db_col
+]
+
+missing = [c for c in required_cols if c not in df.columns]
+if missing:
+    st.error(f"❌ Missing required columns: {missing}")
+    st.stop()
+
+# =========================
+# TIME PROCESSING
+# =========================
+df_plot = df.copy()
+df_plot[time_col] = pd.to_datetime(df_plot[time_col], errors="coerce")
+df_plot = df_plot.dropna(subset=[time_col])
+
+df_plot["Year"] = df_plot[time_col].dt.year
+df_plot["Month"] = df_plot[time_col].dt.to_period("M").astype(str)
+
+# =========================
+# TIME FILTER
+# =========================
+st.subheader("⏱ Time Filter")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    filter_mode = st.radio("Filter by", ["Month", "Year"], horizontal=True)
+
+with col2:
+    if filter_mode == "Month":
+        month_sel = st.multiselect(
+            "Select month(s)",
+            sorted(df_plot["Month"].unique()),
+            default=[sorted(df_plot["Month"].unique())[-1]]
+        )
+        df_plot = df_plot[df_plot["Month"].isin(month_sel)]
+    else:
+        year_sel = st.multiselect(
+            "Select year(s)",
+            sorted(df_plot["Year"].unique()),
+            default=[df_plot["Year"].max()]
+        )
+        df_plot = df_plot[df_plot["Year"].isin(year_sel)]
+
+if df_plot.empty:
+    st.warning("⚠️ No data after time filtering")
+    st.stop()
+
+# =========================
+# SCATTER: THICKNESS vs ΔE
+# =========================
+st.subheader("📊 Average Thickness vs ΔE (Each Point = 1 Coil)")
+
+fig, ax = plt.subplots(figsize=(10, 6))
+
+ax.scatter(
+    df_plot[thickness_col],
+    df_plot[dE_col],
+    alpha=0.75
+)
+
+mean_dE = df_plot[dE_col].mean()
+ax.axhline(mean_dE, linestyle="--", linewidth=2, label=f"Mean ΔE = {mean_dE:.2f}")
+
+ax.set_xlabel("Average Thickness")
+ax.set_ylabel("ΔE")
+ax.set_title("Thickness – Color Relationship per Coil")
+ax.legend()
+ax.grid(True, linestyle="--", alpha=0.4)
+
+st.pyplot(fig)
+
+# =========================
+# ΔE DISTRIBUTION
+# =========================
+st.subheader("📈 ΔE Distribution (Per Coil)")
+
+fig2, ax2 = plt.subplots(figsize=(10, 4))
+ax2.hist(df_plot[dE_col], bins=20)
+
+ax2.set_xlabel("ΔE")
+ax2.set_ylabel("Number of Coils")
+ax2.set_title("ΔE Distribution")
+ax2.grid(True, linestyle="--", alpha=0.4)
+
+st.pyplot(fig2)
+
+# =========================
+# DATA TABLE
+# =========================
+st.subheader("📋 Coil Summary")
+
+st.dataframe(
+    df_plot[
+        [
+            coil_col,
+            thickness_col,
+            dE_col, dL_col, da_col, db_col,
+            time_col
+        ]
+    ].sort_values(by=dE_col, ascending=False),
+    use_container_width=True
+)
+
+
+
+
+
+
+
+
+
+
+
 
 
 
