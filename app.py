@@ -1237,7 +1237,7 @@ st.dataframe(
 # 📐 SPC + THICKNESS CORRELATION (PHASE II – PER COIL)
 # ======================================================
 st.markdown("---")
-st.header("📐 SPC + Thickness Correlation (Phase II – Per Coil)")
+st.header("🔬 PHASE II – THICKNESS CORRELATION (INDEPENDENT MODULE) (Phase II – Per Coil)")
 
 # =========================
 # COLUMN DEFINITIONS
@@ -1398,6 +1398,7 @@ with st.expander("📋 Phase II – Coil level data"):
         coil_df.sort_values(BATCH_COL),
         use_container_width=True
     )
+
 
 
 
