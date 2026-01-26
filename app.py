@@ -862,6 +862,167 @@ st.pyplot(fig)
 st.subheader("📈 ΔE Distribution (Per Coil)")
 
 fig2, ax2 = plt.subplots(figsize=(10, 4))
+
+# DATA
+data_de = df_plot[dE_col].dropna()
+mean_de = data_de.mean()
+std_de = data_de.std()
+
+# Histogram (CỘT)
+ax2.hist(
+    data_de,
+    bins=20,
+    density=True,        # ⚠️ BẮT BUỘC để khớp normal curve
+    alpha=0.7,
+    edgecolor="black",
+    label="ΔE Histogram"
+)
+
+# Normal curve (ĐƯỜNG)
+x_de = np.linspace(mean_de - 5*std_de, mean_de + 5*std_de, 1000)
+y_de = (1 / (std_de * np.sqrt(2 * np.pi))) * np.exp(
+    -0.5 * ((x_de - mean_de) / std_de) ** 2
+)
+
+ax2.plot(
+    x_de,
+    y_de,
+    linewidth=3,
+    label="Normal Distribution"
+)
+
+# Mean
+ax2.axvline(mean_de, linestyle="--", linewidth=2,
+            label=f"Mean = {mean_de:.2f}")
+
+ax2.set_xlabel("ΔE")
+ax2.set_ylabel("Density")
+ax2.set_title("ΔE Distribution")
+ax2.legend()
+ax2.grid(True, linestyle="--", alpha=0.4)
+
+# ❗ CHỈ GỌI 1 LẦN
+st.pyplot(fig2)
+
+# =========================
+import numpy as np
+import math
+
+st.subheader("📊 Average Thickness Distribution (Histogram + Normal Curve)")
+
+# =========================
+# DATA
+# =========================
+data = df_plot[thickness_col].dropna()
+
+mean = data.mean()
+std = data.std()
+
+# =========================
+# SPEC INPUT
+# =========================
+col1, col2 = st.columns(2)
+
+with col1:
+    LSL = st.number_input(
+        "LSL (Lower Spec Limit)",
+        value=float(mean - 3*std)
+    )
+
+with col2:
+    USL = st.number_input(
+        "USL (Upper Spec Limit)",
+        value=float(mean + 3*std)
+    )
+
+if LSL >= USL:
+    st.error("❌ LSL must be smaller than USL")
+    st.stop()
+
+# =========================
+# NORMAL CURVE (NO SCIPY, LONG TAIL)
+# =========================
+x = np.linspace(mean - 5*std, mean + 5*std, 1000)
+y = (1 / (std * math.sqrt(2 * math.pi))) * np.exp(
+    -0.5 * ((x - mean) / std) ** 2
+)
+
+# =========================
+# PLOT
+# =========================
+fig, ax = plt.subplots(figsize=(10, 4))
+
+# Histogram (CỘT)
+ax.hist(
+    data,
+    bins=20,
+    density=True,
+    alpha=0.7,
+    edgecolor="black",
+    label="Thickness Histogram"
+)
+
+# Normal curve (ĐƯỜNG)
+ax.plot(
+    x,
+    y,
+    linewidth=3,
+    label="Normal Distribution"
+)
+
+# Mean & Spec
+ax.axvline(mean, linestyle="--", linewidth=2, label="Mean")
+ax.axvline(LSL, linestyle="--", linewidth=2, label="LSL")
+ax.axvline(USL, linestyle="--", linewidth=2, label="USL")
+
+# Không bị cắt đuôi
+ax.set_xlim(mean - 5*std, mean + 5*std)
+
+ax.set_xlabel("Thickness")
+ax.set_ylabel("Density")
+ax.legend()
+ax.grid(alpha=0.3)
+
+
+# Mean & Spec
+ax.axvline(mean, linestyle="--", linewidth=2,
+           label=f"Mean = {mean:.2f}")
+
+ax.axvline(LSL, linewidth=2, label="LSL")
+ax.axvline(USL, linewidth=2, label="USL")
+
+# Normal zone
+ax.axvspan(LSL, USL, alpha=0.15, label="Normal Zone")
+
+ax.set_xlabel("Average Thickness")
+ax.set_ylabel("Density")
+ax.set_title("Thickness Distribution with Normal Curve (Per Coil)")
+ax.legend()
+ax.grid(True, linestyle="--", alpha=0.4)
+
+st.pyplot(fig)
+
+# =========================
+# DATA TABLE
+# =========================
+st.subheader("📋 Coil Summary")
+
+st.dataframe(
+    df_plot[
+        [
+            coil_col,
+            thickness_col,
+            dE_col, dL_col, da_col, db_col,
+            time_col
+        ]
+    ].sort_values(by=dE_col, ascending=False),
+    use_container_width=True
+)
+# ΔE DISTRIBUTION
+# =========================
+st.subheader("📈 ΔE Distribution (Per Coil)")
+
+fig2, ax2 = plt.subplots(figsize=(10, 4))
 ax2.hist(df_plot[dE_col], bins=20)
 
 ax2.set_xlabel("ΔE")
@@ -887,6 +1048,7 @@ st.dataframe(
     ].sort_values(by=dE_col, ascending=False),
     use_container_width=True
 )
+
 
 
 
