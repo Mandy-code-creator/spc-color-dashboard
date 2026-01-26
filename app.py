@@ -466,7 +466,65 @@ def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code):
     fig.subplots_adjust(right=0.78)
 
     return fig
+# =========================phase 2 chart
+def spc_combined_phase2(
+    lab, line, title,
+    lab_lim, line_lim,
+    control_batch_code
+):
 
+    if control_batch_code is None:
+        return None
+
+    # ===== chỉ lấy Phase II =====
+    lab2 = lab[lab["製造批號"] >= control_batch_code]
+    line2 = line[line["製造批號"] >= control_batch_code]
+
+    if lab2.empty and line2.empty:
+        return None
+
+    fig, ax = plt.subplots(figsize=(12, 4))
+
+    # ===== LAB & LINE =====
+    if not lab2.empty:
+        ax.plot(
+            lab2["製造批號"], lab2["value"],
+            "o-", label="LAB", color="#1f77b4"
+        )
+
+    if not line2.empty:
+        ax.plot(
+            line2["製造批號"], line2["value"],
+            "o-", label="LINE", color="#2ca02c"
+        )
+
+    # ===== Phase II marker =====
+    ax.axvline(
+        x=control_batch_code,
+        color="#b22222",
+        linestyle="--",
+        linewidth=1.5,
+        label="Phase II start"
+    )
+
+    # ===== control limits (GIỐNG Y HỆT BIỂU ĐỒ CŨ) =====
+    if lab_lim[0] is not None:
+        ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":", label="LAB LCL")
+        ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":", label="LAB UCL")
+
+    if line_lim[0] is not None:
+        ax.axhline(line_lim[0], color="red", label="LINE LCL")
+        ax.axhline(line_lim[1], color="red", label="LINE UCL")
+
+    ax.set_title(title)
+    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
+    ax.grid(True)
+    ax.tick_params(axis="x", rotation=45)
+    fig.subplots_adjust(right=0.78)
+
+    return fig
+
+# =========================
 
 def spc_single(spc, title, limit, color):
     fig, ax = plt.subplots(figsize=(12, 4))
@@ -524,7 +582,26 @@ for k in spc:
 )
     st.pyplot(fig)
     download(fig, f"COMBINED_{color}_{k}.png")
+#SPC Combined Chart (LAB + LINE) – Phase II")
+st.markdown("---")
+st.subheader("📊 SPC Combined Chart (LAB + LINE) – Phase II")
 
+for k in ["ΔL", "Δa", "Δb"]:
+
+    fig = spc_combined_phase2(
+        lab=spc[k]["lab"],
+        line=spc[k]["line"],
+        title=f"{k} – LAB + LINE (Phase II)",
+        lab_lim=get_limit(color, k, "LAB"),
+        line_lim=get_limit(color, k, "LINE"),
+        control_batch_code=control_batch_code
+    )
+
+    if fig is not None:
+        st.pyplot(fig)
+        download(fig, f"COMBINED_PHASE2_{color}_{k}.png")
+    else:
+        st.info(f"{k}: Not enough Phase II data")
 
 
 # =========================
@@ -1126,6 +1203,11 @@ st.dataframe(
 )
 
 # =========================
+
+
+
+
+
 
 
 
