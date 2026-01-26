@@ -1447,6 +1447,56 @@ criteria_table = pd.DataFrame({
 
 st.dataframe(criteria_table, use_container_width=True)
 
+# =========================
+# PROCESS CAPABILITY CRITERIA
+# =========================
+st.markdown("### 📏 Process Capability Criteria")
+
+ca_df = pd.DataFrame({
+    "│Ca│ Range": ["≤ 12.5%", "12.5% – 25%", "25% – 50%", "> 50%"],
+    "Grade": ["A 良好", "B 尚可", "C 能力不足", "D 能力極差"],
+    "Meaning": [
+        "Well centered",
+        "Slight off-center",
+        "Significant centering issue",
+        "Severe centering problem"
+    ]
+})
+
+cp_df = pd.DataFrame({
+    "Cp Range": ["≥ 1.33", "1.00 – 1.32", "0.67 – 0.99", "< 0.67"],
+    "Grade": ["A 良好", "B 尚可", "C 能力不足", "D 能力極差"],
+    "Meaning": [
+        "Good variation control",
+        "Acceptable variation",
+        "High variation",
+        "Uncontrolled variation"
+    ]
+})
+
+cpk_df = pd.DataFrame({
+    "Cpk Range": ["≥ 1.67", "1.33 – 1.66", "1.00 – 1.32", "0.67 – 0.99", "< 0.67"],
+    "Grade": ["A+ 極佳", "A 良好", "B 尚可", "C 能力不足", "D 能力極差"],
+    "Meaning": [
+        "Excellent capability",
+        "Good capability",
+        "Acceptable",
+        "Poor capability",
+        "Very poor capability"
+    ]
+})
+
+tab1, tab2, tab3 = st.tabs(["Ca", "Cp", "Cpk"])
+
+with tab1:
+    st.dataframe(ca_df, use_container_width=True)
+
+with tab2:
+    st.dataframe(cp_df, use_container_width=True)
+
+with tab3:
+    st.dataframe(cpk_df, use_container_width=True)
+
 
 
 
