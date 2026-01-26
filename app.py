@@ -1429,6 +1429,24 @@ with st.expander("📋 Phase II – Coil level data"):
         use_container_width=True
     )
 
+# =========================
+# CORRELATION CRITERIA
+# =========================
+st.markdown("### 📐 Correlation Criteria (|R|)")
+
+criteria_table = pd.DataFrame({
+    "|R| Range": ["≥ 0.70", "0.40 – 0.69", "0.20 – 0.39", "< 0.20"],
+    "Strength": ["Strong", "Moderate", "Weak", "Negligible"],
+    "Interpretation": [
+        "Likely primary driver",
+        "Contributing factor",
+        "Minor influence",
+        "No practical relationship"
+    ]
+})
+
+st.dataframe(criteria_table, use_container_width=True)
+
 
 
 
