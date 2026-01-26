@@ -1018,36 +1018,6 @@ st.dataframe(
     ].sort_values(by=dE_col, ascending=False),
     use_container_width=True
 )
-# ΔE DISTRIBUTION
-# =========================
-st.subheader("📈 ΔE Distribution (Per Coil)")
-
-fig2, ax2 = plt.subplots(figsize=(10, 4))
-ax2.hist(df_plot[dE_col], bins=20)
-
-ax2.set_xlabel("ΔE")
-ax2.set_ylabel("Number of Coils")
-ax2.set_title("ΔE Distribution")
-ax2.grid(True, linestyle="--", alpha=0.4)
-
-st.pyplot(fig2)
-
-# =========================
-# DATA TABLE
-# =========================
-st.subheader("📋 Coil Summary")
-
-st.dataframe(
-    df_plot[
-        [
-            coil_col,
-            thickness_col,
-            dE_col, dL_col, da_col, db_col,
-            time_col
-        ]
-    ].sort_values(by=dE_col, ascending=False),
-    use_container_width=True
-)
 
 
 
