@@ -411,26 +411,24 @@ def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code):
     # ===== original lines (GIỮ NGUYÊN) =====
     ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
     ax.plot(line["製造批號"], line["value"], "o-", label="LINE", color="#2ca02c")
-     # ===== control batch vertical line =====
+     # ===== Phase change (Minitab style) =====
     if control_batch_code is not None:
         ax.axvline(
             x=control_batch_code,
-            color="red",
+            color="#b22222",
             linestyle="--",
-            linewidth=2,
-            label="Control batch start"
+            linewidth=1.5
         )
 
-        # ===== label text for control batch =====
         ax.text(
-    control_batch_code,
-    ax.get_ylim()[1] * 0.98,
-    "Start control",
-    color="red",
-    fontsize=9,
-    ha="right",
-    va="top"
-)
+            control_batch_code,
+            ax.get_ylim()[1] * 0.97,
+            "Phase II",
+            color="#b22222",
+            fontsize=9,
+            ha="center",
+            va="top"
+        )
 
 
     # ===== highlight LAB out-of-limit =====
@@ -1128,6 +1126,9 @@ st.dataframe(
 )
 
 # =========================
+
+
+
 
 
 
