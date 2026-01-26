@@ -121,7 +121,7 @@ def get_limit(color, prefix, factor):
         row.get(f"{factor} {prefix} LCL", [None]).values[0],
         row.get(f"{factor} {prefix} UCL", [None]).values[0]
     )
-
+# =========================
 # CONTROL BATCH FUNCTION  
 def get_control_batch(color):
     row = limit_df[limit_df["Color_code"] == color]
@@ -146,7 +146,27 @@ def get_control_batch(color):
         return int(float(value))
     except:
         return None
+# =========================
+def get_control_batch_code(df, control_batch):
+    """
+    control_batch: batch thứ N (bắt đầu từ 1)
+    return: 製造批號 tương ứng để vẽ trên trục X
+    """
+    if control_batch is None or df.empty:
+        return None
 
+    batch_order = (
+        df.sort_values("Time")
+          .groupby("製造批號", as_index=False)
+          .first()
+          .reset_index(drop=True)
+    )
+
+    # ⚠️ batch đầu tiên = 1
+    if 1 <= control_batch <= len(batch_order):
+        return batch_order.loc[control_batch - 1, "製造批號"]
+
+    return None
 
 # =========================
 # SIDEBAR – FILTER
@@ -180,11 +200,11 @@ st.sidebar.divider()
 # =========================
 
 # =========================
-# =========================
-# =========================
 # CONTROL BATCH INFO (SIDEBAR)
 # =========================
 control_batch = get_control_batch(color)
+control_batch_code = get_control_batch_code(df, control_batch)
+
 
 st.sidebar.write("DEBUG Control_batch =", control_batch)
 
@@ -230,7 +250,6 @@ show_limits("LAB")
 show_limits("LINE")
 
 # =========================
-
 # =========================
 # OUT-OF-CONTROL DETECTION
 # =========================
@@ -382,7 +401,8 @@ with col2:
 # =========================
 # SPC CHARTS (GIỮ NGUYÊN)
 # =========================
-def spc_combined(lab, line, title, lab_lim, line_lim):
+def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code):
+
     fig, ax = plt.subplots(figsize=(12, 4))
 
     mean = line["value"].mean()
@@ -391,6 +411,27 @@ def spc_combined(lab, line, title, lab_lim, line_lim):
     # ===== original lines (GIỮ NGUYÊN) =====
     ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
     ax.plot(line["製造批號"], line["value"], "o-", label="LINE", color="#2ca02c")
+     # ===== control batch vertical line =====
+    if control_batch_code is not None:
+        ax.axvline(
+            x=control_batch_code,
+            color="red",
+            linestyle="--",
+            linewidth=2,
+            label="Control batch start"
+        )
+
+        # ===== label text for control batch =====
+        ax.text(
+    control_batch_code,
+    ax.get_ylim()[1] * 0.98,
+    "Start control",
+    color="red",
+    fontsize=9,
+    ha="right",
+    va="top"
+)
+
 
     # ===== highlight LAB out-of-limit =====
     x_lab = lab["製造批號"]
@@ -476,12 +517,13 @@ def download(fig, name):
 st.markdown("### 📊 CONTROL CHART: LAB-LINE")
 for k in spc:
     fig = spc_combined(
-        spc[k]["lab"],
-        spc[k]["line"],
-        f"COMBINED {k}",
-        get_limit(color, k, "LAB"),
-        get_limit(color, k, "LINE")
-    )
+    spc[k]["lab"],
+    spc[k]["line"],
+    f"COMBINED {k}",
+    get_limit(color, k, "LAB"),
+    get_limit(color, k, "LINE"),
+    control_batch_code
+)
     st.pyplot(fig)
     download(fig, f"COMBINED_{color}_{k}.png")
 
@@ -1086,6 +1128,13 @@ st.dataframe(
 )
 
 # =========================
+
+
+
+
+
+
+
 
 
 
