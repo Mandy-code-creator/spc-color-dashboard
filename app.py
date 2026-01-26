@@ -1240,6 +1240,7 @@ st.markdown("---")
 st.header("🔬 PHASE II – THICKNESS CORRELATION (INDEPENDENT MODULE) (Phase II – Per Coil)")
 
 # =========================
+# =========================
 # COLUMN DEFINITIONS
 # =========================
 COLOR_COL = "塗料編號"
@@ -1257,8 +1258,8 @@ COLOR_FACTORS = {
 # =========================
 # BASIC CHECK
 # =========================
-required = [COLOR_COL, BATCH_COL, COIL_COL, THICK_COL]
-missing = [c for c in required if c not in df.columns]
+required_cols = [COLOR_COL, BATCH_COL, COIL_COL, THICK_COL]
+missing = [c for c in required_cols if c not in df.columns]
 
 if missing:
     st.warning(f"⚠ Missing required columns: {missing}")
@@ -1324,7 +1325,7 @@ if coil_df.empty:
     st.stop()
 
 # =========================
-# OOC BY SPC LIMIT (LINE)
+# SPC OOC DETECTION (LINE)
 # =========================
 lcl, ucl = get_limit(color, factor_label, "LINE")
 
@@ -1343,6 +1344,21 @@ ooc_df = coil_df[ooc_mask]
 # CORRELATION
 # =========================
 corr = coil_df[THICK_COL].corr(coil_df[factor_col])
+
+# =========================
+# REGRESSION + R²
+# =========================
+x = coil_df[THICK_COL].values
+y = coil_df[factor_col].values
+
+r2 = None
+if len(x) >= 2:
+    slope, intercept = np.polyfit(x, y, 1)
+    y_pred = slope * x + intercept
+
+    ss_res = np.sum((y - y_pred) ** 2)
+    ss_tot = np.sum((y - np.mean(y)) ** 2)
+    r2 = 1 - ss_res / ss_tot if ss_tot != 0 else 0
 
 # =========================
 # PLOT
@@ -1366,13 +1382,24 @@ if not ooc_df.empty:
         label="OOC Coil"
     )
 
+if r2 is not None:
+    x_line = np.linspace(x.min(), x.max(), 100)
+    y_line = slope * x_line + intercept
+    ax.plot(
+        x_line,
+        y_line,
+        linestyle="--",
+        linewidth=2,
+        label=f"Regression line (R² = {r2:.3f})"
+    )
+
+title = f"Phase II – Per Coil Analysis\nThickness vs {factor_label}"
+if r2 is not None:
+    title += f" | r = {corr:.3f}, R² = {r2:.3f}"
+
+ax.set_title(title)
 ax.set_xlabel("Average Thickness (per Coil)")
 ax.set_ylabel(factor_label)
-ax.set_title(
-    f"Phase II – Per Coil Analysis\n"
-    f"Thickness vs {factor_label} | r = {corr:.3f}"
-)
-
 ax.legend()
 ax.grid(True, linestyle="--", alpha=0.4)
 
@@ -1383,12 +1410,15 @@ st.pyplot(fig)
 # =========================
 st.markdown("### 🧠 Interpretation")
 
-if abs(corr) >= 0.7:
-    st.error("🔴 Strong correlation → Thickness is very likely a key driver")
-elif abs(corr) >= 0.4:
-    st.warning("🟠 Moderate correlation → Thickness may influence color variation")
+if r2 is not None:
+    if r2 >= 0.6:
+        st.error("🔴 Thickness strongly explains color variation (High R²)")
+    elif r2 >= 0.3:
+        st.warning("🟠 Thickness may contribute to color drift (Moderate R²)")
+    else:
+        st.success("🟢 Thickness unlikely main driver (Low R²)")
 else:
-    st.success("🟢 Weak correlation → Thickness unlikely main cause")
+    st.info("ℹ Not enough data for regression analysis")
 
 # =========================
 # DATA TABLE
