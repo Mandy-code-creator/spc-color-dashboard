@@ -497,6 +497,18 @@ def spc_combined_phase2(
             line2["製造批號"], line2["value"],
             "o-", label="LINE", color="#2ca02c"
         )
+    # ===== highlight out-of-limit (PHASE II) =====
+    if not lab2.empty and lab_lim[0] is not None:
+        y = lab2["value"]
+        x = lab2["製造批號"]
+        out = (y < lab_lim[0]) | (y > lab_lim[1])
+        ax.scatter(x[out], y[out], color="red", s=90, zorder=6)
+
+    if not line2.empty and line_lim[0] is not None:
+        y = line2["value"]
+        x = line2["製造批號"]
+        out = (y < line_lim[0]) | (y > line_lim[1])
+        ax.scatter(x[out], y[out], color="red", s=90, zorder=6)
 
     # ===== Phase II marker =====
     ax.axvline(
@@ -1203,6 +1215,7 @@ st.dataframe(
 )
 
 # =========================
+
 
 
 
