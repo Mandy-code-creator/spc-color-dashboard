@@ -13,6 +13,9 @@ st.set_page_config(
     page_icon="📊",
     layout="wide"
 )
+st.title("室內隔間用途－塗料入料管控專案")
+st.caption("Incoming Paint SPC · LAB / LINE · Phase II Monitoring")
+
 st.markdown(
     """
     <style>
@@ -618,7 +621,6 @@ for k in ["ΔL", "Δa", "Δb"]:
 
 # =========================
 # =========================
-# =========================
 # DISTRIBUTION DASHBOARD
 # =========================
 
@@ -628,25 +630,6 @@ def calc_capability(values, lcl, ucl):
 
     mean = values.mean()
     std = values.std()
-
-    if std == 0 or np.isnan(std):
-        return None, None, None
-
-    cp = (ucl - lcl) / (6 * std)
-    cpk = min(
-        (ucl - mean) / (3 * std),
-        (mean - lcl) / (3 * std)
-    )
-    ca = abs(mean - (ucl + lcl) / 2) / ((ucl - lcl) / 2)
-
-    return round(ca, 2), round(cp, 2), round(cpk, 2)
-
-
-def normal_pdf(x, mean, std):
-    return (1 / (std * math.sqrt(2 * math.pi))) * np.exp(
-        -0.5 * ((x - mean) / std) ** 2
-    )
-
 
 # =========================
 # =========================
@@ -673,9 +656,6 @@ for i, k in enumerate(spc):
         mean = values.mean()
         std = values.std()
         lcl, ucl = get_limit(color, k, "LINE")
-
-        # ===== capability (BẮT BUỘC PHẢI Ở ĐÂY) =====
-        ca, cp, cpk = calc_capability(values, lcl, ucl)
 
         fig, ax = plt.subplots(figsize=(5, 4))
 
@@ -712,18 +692,6 @@ for i, k in enumerate(spc):
             ax.axvline(lcl, color="red", linestyle="--", linewidth=1.5, label="LSL")
         if ucl is not None:
             ax.axvline(ucl, color="red", linestyle="--", linewidth=1.5, label="USL")
-
-        # ===== Capability box =====
-        if cp is not None:
-            ax.text(
-                0.98, 0.95,
-                f"Ca  = {ca}\nCp  = {cp}\nCpk = {cpk}",
-                transform=ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=9,
-                bbox=dict(facecolor="white", alpha=0.9)
-            )
 
         # ===== Info box =====
         ax.text(
@@ -804,9 +772,7 @@ for i, k in enumerate(spc):
         std = values.std()
         lcl, ucl = get_limit(color, k, "LAB")
 
-        # ===== capability =====
-        ca, cp, cpk = calc_capability(values, lcl, ucl)
-
+       
         fig, ax = plt.subplots(figsize=(5, 4))
 
         # ===== Histogram =====
@@ -842,18 +808,6 @@ for i, k in enumerate(spc):
             ax.axvline(lcl, color="red", linestyle="--", linewidth=1.5, label="LSL")
         if ucl is not None:
             ax.axvline(ucl, color="red", linestyle="--", linewidth=1.5, label="USL")
-
-        # ===== Capability box =====
-        if cp is not None:
-            ax.text(
-                0.98, 0.95,
-                f"Ca  = {ca}\nCp  = {cp}\nCpk = {cpk}",
-                transform=ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=9,
-                bbox=dict(facecolor="white", alpha=0.9)
-            )
 
         # ===== Info box =====
         ax.text(
@@ -1116,6 +1070,7 @@ st.pyplot(fig2)
 import numpy as np
 import math
 
+# =========================
 st.subheader("📊 Average Thickness Distribution (Histogram + Normal Curve)")
 
 # =========================
@@ -1134,13 +1089,13 @@ col1, col2 = st.columns(2)
 with col1:
     LSL = st.number_input(
         "LSL (Lower Spec Limit)",
-        value=float(mean - 3*std)
+        value=float(mean - 3 * std)
     )
 
 with col2:
     USL = st.number_input(
         "USL (Upper Spec Limit)",
-        value=float(mean + 3*std)
+        value=float(mean + 3 * std)
     )
 
 if LSL >= USL:
@@ -1150,7 +1105,7 @@ if LSL >= USL:
 # =========================
 # NORMAL CURVE (NO SCIPY, LONG TAIL)
 # =========================
-x = np.linspace(mean - 5*std, mean + 5*std, 1000)
+x = np.linspace(mean - 5 * std, mean + 5 * std, 1000)
 y = (1 / (std * math.sqrt(2 * math.pi))) * np.exp(
     -0.5 * ((x - mean) / std) ** 2
 )
@@ -1160,7 +1115,7 @@ y = (1 / (std * math.sqrt(2 * math.pi))) * np.exp(
 # =========================
 fig, ax = plt.subplots(figsize=(10, 4))
 
-# Histogram (CỘT)
+# Histogram
 ax.hist(
     data,
     bins=20,
@@ -1170,7 +1125,7 @@ ax.hist(
     label="Thickness Histogram"
 )
 
-# Normal curve (ĐƯỜNG)
+# Normal curve
 ax.plot(
     x,
     y,
@@ -1178,35 +1133,46 @@ ax.plot(
     label="Normal Distribution"
 )
 
-# Mean & Spec
-ax.axvline(mean, linestyle="--", linewidth=2, label="Mean")
-ax.axvline(LSL, linestyle="--", linewidth=2, label="LSL")
-ax.axvline(USL, linestyle="--", linewidth=2, label="USL")
+# Mean & Spec (CHỈ VẼ 1 LẦN)
+ax.axvline(
+    mean,
+    linestyle="--",
+    linewidth=2,
+    color="red",
+    label=f"Mean = {mean:.2f}"
+)
 
-# Không bị cắt đuôi
-ax.set_xlim(mean - 5*std, mean + 5*std)
+ax.axvline(
+    LSL,
+    linestyle="--",
+    linewidth=2,
+    color="green",
+    label=f"LSL = {LSL:.2f}"
+)
 
-ax.set_xlabel("Thickness")
-ax.set_ylabel("Density")
-ax.legend()
-ax.grid(alpha=0.3)
+ax.axvline(
+    USL,
+    linestyle="--",
+    linewidth=2,
+    color="green",
+    label=f"USL = {USL:.2f}"
+)
 
+# Spec zone
+ax.axvspan(
+    LSL,
+    USL,
+    alpha=0.15,
+    label="Spec Zone"
+)
 
-# Mean & Spec
-ax.axvline(mean, linestyle="--", linewidth=2,
-           label=f"Mean = {mean:.2f}")
-
-ax.axvline(LSL, linewidth=2, label="LSL")
-ax.axvline(USL, linewidth=2, label="USL")
-
-# Normal zone
-ax.axvspan(LSL, USL, alpha=0.15, label="Normal Zone")
-
+# Layout
+ax.set_xlim(mean - 5 * std, mean + 5 * std)
 ax.set_xlabel("Average Thickness")
 ax.set_ylabel("Density")
 ax.set_title("Thickness Distribution with Normal Curve (Per Coil)")
-ax.legend()
 ax.grid(True, linestyle="--", alpha=0.4)
+ax.legend()
 
 st.pyplot(fig)
 
@@ -1448,54 +1414,12 @@ criteria_table = pd.DataFrame({
 st.dataframe(criteria_table, use_container_width=True)
 
 # =========================
-# PROCESS CAPABILITY CRITERIA
-# =========================
-st.markdown("### 📏 Process Capability Criteria")
 
-ca_df = pd.DataFrame({
-    "│Ca│ Range": ["≤ 12.5%", "12.5% – 25%", "25% – 50%", "> 50%"],
-    "Grade": ["A 良好", "B 尚可", "C 能力不足", "D 能力極差"],
-    "Meaning": [
-        "Well centered",
-        "Slight off-center",
-        "Significant centering issue",
-        "Severe centering problem"
-    ]
-})
 
-cp_df = pd.DataFrame({
-    "Cp Range": ["≥ 1.33", "1.00 – 1.32", "0.67 – 0.99", "< 0.67"],
-    "Grade": ["A 良好", "B 尚可", "C 能力不足", "D 能力極差"],
-    "Meaning": [
-        "Good variation control",
-        "Acceptable variation",
-        "High variation",
-        "Uncontrolled variation"
-    ]
-})
 
-cpk_df = pd.DataFrame({
-    "Cpk Range": ["≥ 1.67", "1.33 – 1.66", "1.00 – 1.32", "0.67 – 0.99", "< 0.67"],
-    "Grade": ["A+ 極佳", "A 良好", "B 尚可", "C 能力不足", "D 能力極差"],
-    "Meaning": [
-        "Excellent capability",
-        "Good capability",
-        "Acceptable",
-        "Poor capability",
-        "Very poor capability"
-    ]
-})
 
-tab1, tab2, tab3 = st.tabs(["Ca", "Cp", "Cpk"])
 
-with tab1:
-    st.dataframe(ca_df, use_container_width=True)
 
-with tab2:
-    st.dataframe(cp_df, use_container_width=True)
-
-with tab3:
-    st.dataframe(cpk_df, use_container_width=True)
 
 
 
