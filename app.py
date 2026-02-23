@@ -168,15 +168,15 @@ app_mode = st.sidebar.radio(
     "Select View Mode",
     [
         "🚀 Main Dashboard", 
-        "🎛️ Control Limit Calculator",
-        "📋 Limit Status Summary"
+        "📋 Limit Status Summary",
+        "🎛️ Control Limit Calculator"
     ],
     label_visibility="collapsed"
 )
 
 
 # =========================================================
-# VIEWS 1 & 2: SPECIFIC COLOR ANALYSIS
+# VIEWS 1 & 3: SPECIFIC COLOR ANALYSIS (Main & Calculator)
 # =========================================================
 if app_mode in ["🚀 Main Dashboard", "🎛️ Control Limit Calculator"]:
     
@@ -618,15 +618,36 @@ if app_mode in ["🚀 Main Dashboard", "🎛️ Control Limit Calculator"]:
 
 
 # =========================================================
-# VIEW 3: LIMIT STATUS SUMMARY (LOGIC NÂNG CẤP)
+# VIEW 3: LIMIT STATUS SUMMARY (ADVANCED SPC RULES)
 # =========================================================
 elif app_mode == "📋 Limit Status Summary":
     
     st.title("📋 Limit Status Summary")
-    st.markdown("Global overview of all color codes, identifying stable processes and those requiring control limit recalculation.")
+    st.markdown("Global overview of all color codes, identifying stable processes and those requiring control limit recalculation based on SPC rules.")
+
+    # Cài đặt ngưỡng cảnh báo OOC
+    st.markdown("### ⚙️ Alert Settings")
+    col_set1, col_set2 = st.columns(2)
+    with col_set1:
+        consecutive_threshold = st.number_input(
+            "Consecutive OOC threshold (Rule 4):", 
+            min_value=1, max_value=10, value=2, step=1,
+            help="Trigger if this many consecutive batches exceed limits."
+        )
+    with col_set2:
+        total_ooc_threshold = st.number_input(
+            "Total (non-consecutive) OOC threshold:", 
+            min_value=1, max_value=20, value=5, step=1,
+            help="Trigger if the total number of out-of-bounds batches reaches this number across the entire phase."
+        )
 
     all_colors = sorted(df_raw["塗料編號"].dropna().unique())
     summary_data = []
+
+    # Hàm tìm số điểm True liên tiếp tối đa trong Pandas Series
+    def max_consecutive_true(s):
+        if s.empty: return 0
+        return (s * (s.groupby((s != s.shift()).cumsum()).cumcount() + 1)).max()
 
     for c in all_colors:
         # Check current limits in Sheet
@@ -640,16 +661,16 @@ elif app_mode == "📋 Limit Status Summary":
             else:
                 status = "✅ Yes"
 
-        # Tình trạng tính ban đầu (Initial Calc)
-        df_c = df_raw[df_raw["塗料編號"] == c]
+        # Check total production volume for initial calc
+        df_c = df_raw[df_raw["塗料編號"] == c].sort_values("Time")
         total_batches = df_c["製造批號"].nunique()
         can_calc_initial = "✅ Yes" if total_batches >= 3 else "❌ No"
         
-        # Check Phase II data & OOC
+        # Check Phase II data & Consecutive OOCs
         cb = get_control_batch(c)
         cb_code = get_control_batch_code(df_c, cb)
         
-        recalc_status = "❌ Not enough data" # Mặc định
+        recalc_status = "❌ Not enough data" # Default
         
         if cb_code is not None:
             df_p2 = df_c[df_c["製造批號"] >= cb_code]
@@ -657,8 +678,9 @@ elif app_mode == "📋 Limit Status Summary":
             
             if phase2_batches >= 3:
                 if status == "✅ Yes":
-                    # Đếm số điểm OOC trong Phase II so với Sheet LCL/UCL
-                    total_p2_ooc = 0
+                    max_consec_any_chart = 0
+                    max_total_any_chart = 0
+                    
                     spc_p2 = {
                         "ΔL": {"lab": prep_lab(df_p2, "入料檢測 ΔL 正面"), "line": prep_spc(df_p2, "正-北 ΔL", "正-南 ΔL")},
                         "Δa": {"lab": prep_lab(df_p2, "入料檢測 Δa 正面"), "line": prep_spc(df_p2, "正-北 Δa", "正-南 Δa")},
@@ -666,23 +688,25 @@ elif app_mode == "📋 Limit Status Summary":
                     }
                     
                     for factor in ["ΔL", "Δa", "Δb"]:
-                        # Đếm LINE OOC
-                        lcl_line, ucl_line = get_limit(c, factor, "LINE")
-                        if lcl_line is not None and ucl_line is not None:
-                            vals_line = spc_p2[factor]["line"]["value"]
-                            total_p2_ooc += ((vals_line < lcl_line) | (vals_line > ucl_line)).sum()
-                        
-                        # Đếm LAB OOC
-                        lcl_lab, ucl_lab = get_limit(c, factor, "LAB")
-                        if lcl_lab is not None and ucl_lab is not None:
-                            vals_lab = spc_p2[factor]["lab"]["value"]
-                            total_p2_ooc += ((vals_lab < lcl_lab) | (vals_lab > ucl_lab)).sum()
+                        for source in ["line", "lab"]:
+                            lcl, ucl = get_limit(c, factor, source.upper())
+                            if lcl is not None and ucl is not None:
+                                vals = spc_p2[factor][source]["value"]
+                                mask = (vals < lcl) | (vals > ucl)
+                                
+                                consec = max_consecutive_true(mask)
+                                total_ooc = mask.sum()
+                                
+                                if consec > max_consec_any_chart: max_consec_any_chart = consec
+                                if total_ooc > max_total_any_chart: max_total_any_chart = total_ooc
                     
-                    # Cập nhật trạng thái
-                    if total_p2_ooc > 0:
-                        recalc_status = f"⚠️ Propose Recalc ({total_p2_ooc} OOCs)"
+                    # Đánh giá dựa trên 2 điều kiện
+                    if max_consec_any_chart >= consecutive_threshold:
+                        recalc_status = f"⚠️ Propose Recalc ({max_consec_any_chart} consec OOCs)"
+                    elif max_total_any_chart >= total_ooc_threshold:
+                        recalc_status = f"⚠️ Propose Recalc ({max_total_any_chart} total OOCs)"
                     else:
-                        recalc_status = "✅ Stable (0 OOCs)"
+                        recalc_status = f"✅ Stable (Max Consec: {max_consec_any_chart}, Total: {max_total_any_chart})"
                 else:
                     recalc_status = "❌ Missing Current Limits"
         else:
@@ -692,28 +716,28 @@ elif app_mode == "📋 Limit Status Summary":
             "Color Code": c,
             "Total Batches": total_batches,
             "Phase II Batches": phase2_batches,
-            "Current Limits (Sheet)": status,
-            "Ready for Initial Calc": can_calc_initial,
-            "Recommend Phase II Recalc": recalc_status
+            "Current Limits": status,
+            "Ready for Calc (Total)": can_calc_initial,
+            "Recommend Recalc (Phase II)": recalc_status
         })
 
     summary_df = pd.DataFrame(summary_data)
 
     total_c = len(summary_df)
-    has_limit_c = len(summary_df[summary_df["Current Limits (Sheet)"] == "✅ Yes"])
-    ready_initial_c = len(summary_df[summary_df["Ready for Initial Calc"] == "✅ Yes"])
-    needs_recalc_c = sum(1 for d in summary_data if "⚠️ Propose Recalc" in d["Recommend Phase II Recalc"])
+    has_limit_c = len(summary_df[summary_df["Current Limits"] == "✅ Yes"])
+    ready_initial_c = len(summary_df[summary_df["Ready for Calc (Total)"] == "✅ Yes"])
+    needs_recalc_c = sum(1 for d in summary_data if "⚠️ Propose Recalc" in d["Recommend Recalc (Phase II)"])
 
     # High-level Metrics
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Colors", total_c)
     col2.metric("Colors Configured", has_limit_c)
     col3.metric("Ready to Calc (Initial)", ready_initial_c)
-    col4.metric("Needs Recalculation", needs_recalc_c, delta="OOC Detected", delta_color="inverse")
+    col4.metric("Needs Recalculation", needs_recalc_c, delta="Process Shift", delta_color="inverse")
 
     st.markdown("---")
     st.markdown("### 📊 Comprehensive Status Table")
     
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
     
-    st.info("**Guide:**\n- **Ready for Initial Calc**: Color has at least 3 production batches in total. Eligible for base limit setup.\n- **Recommend Phase II Recalc**: Checks Phase II data against current limits. If there are Out-Of-Control (OOC) points, recalculation is proposed.")
+    st.info("**Guide:**\n- **Ready for Calc**: Has at least 3 batches in total. Eligible for setting initial limits.\n- **Recommend Recalc**: Analyzes Phase II sequence based on the Alert Settings above. Recalculation is proposed if ANY factor (L, a, b in LAB or LINE) breaches the consecutive or total threshold.")
