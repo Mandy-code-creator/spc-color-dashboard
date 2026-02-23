@@ -653,24 +653,24 @@ elif app_mode == "📋 Limit Status Summary":
         else:
             phase2_batches = 0
             
-        can_calc_initial = "✅ Yes" if total_batches >= 3 else "❌ No"
-        can_recalc_p2 = "✅ Yes" if phase2_batches >= 3 else "❌ No"
+        can_calc_initial = "✅ Yes" if total_batches >= 5 else "❌ No"
+        can_recalc_p2 = "✅ Yes" if phase2_batches >= 5 else "❌ No"
         
         summary_data.append({
             "Color Code": c,
             "Total Batches": total_batches,
             "Phase II Batches": phase2_batches,
             "Current Limits (Sheet)": status,
-            "Ready for Calc (Total ≥ 3)": can_calc_initial,
-            "Ready for Phase II Recalc (≥ 3)": can_recalc_p2
+            "Ready for Calc (Total ≥ 5)": can_calc_initial,
+            "Ready for Phase II Recalc (≥ 5)": can_recalc_p2
         })
 
     summary_df = pd.DataFrame(summary_data)
 
     total_c = len(summary_df)
     has_limit_c = len(summary_df[summary_df["Current Limits (Sheet)"] == "✅ Yes"])
-    ready_initial_c = len(summary_df[summary_df["Ready for Calc (Total ≥ 3)"] == "✅ Yes"])
-    ready_recalc_c = len(summary_df[summary_df["Ready for Phase II Recalc (≥ 3)"] == "✅ Yes"])
+    ready_initial_c = len(summary_df[summary_df["Ready for Calc (Total ≥ 5)"] == "✅ Yes"])
+    ready_recalc_c = len(summary_df[summary_df["Ready for Phase II Recalc (≥ 5)"] == "✅ Yes"])
 
     # High-level Metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -685,3 +685,4 @@ elif app_mode == "📋 Limit Status Summary":
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
     
     st.info("**Guide:**\n- **Ready for Calc**: Has at least 3 batches in total, which is enough to calculate basic Control Limits.\n- **Ready for Phase II Recalc**: Has at least 3 batches *after* the Control Batch, meaning there is enough monitoring data to recalculate specific Phase II limits.")
+
