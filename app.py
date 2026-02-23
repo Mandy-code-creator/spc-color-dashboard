@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import io
 import numpy as np
 import math
+import re
 
 # =========================
 # PAGE CONFIG
@@ -122,7 +123,6 @@ def get_control_batch(color):
     value = row["Control_batch"].values[0]
     if pd.isna(value): return None
     if isinstance(value, str):
-        import re
         m = re.search(r"\d+", value)
         if m: return int(m.group())
     try: return int(float(value))
@@ -618,51 +618,70 @@ if app_mode in ["🚀 Main Dashboard", "🎛️ Control Limit Calculator"]:
 
 
 # =========================================================
-# VIEW 3: LIMIT STATUS SUMMARY (BẢNG TỔNG HỢP MỚI)
+# VIEW 3: LIMIT STATUS SUMMARY (GLOBAL OVERVIEW)
 # =========================================================
 elif app_mode == "📋 Limit Status Summary":
     
     st.title("📋 Limit Status Summary")
-    st.markdown("Global overview of all color codes and their current control limit configuration in the Google Sheet.")
+    st.markdown("Global overview of all color codes, their current control limit configuration, and their readiness for limit calculation/recalculation.")
 
     all_colors = sorted(df_raw["塗料編號"].dropna().unique())
     summary_data = []
 
     for c in all_colors:
+        # Check current limits in Sheet
         row = limit_df[limit_df["Color_code"] == c]
         if row.empty:
             status = "❌ No"
-            batch = "N/A"
         else:
-            # Kiểm tra xem các cột LCL/UCL có bị bỏ trống toàn bộ hay không
             limit_cols = [col for col in row.columns if "LCL" in col or "UCL" in col]
             if row[limit_cols].isna().all().all():
                 status = "⚠️ Blank"
             else:
                 status = "✅ Yes"
 
-            batch_val = row["Control_batch"].values[0]
-            batch = str(batch_val) if pd.notnull(batch_val) else "N/A"
-
+        # Check production volume
+        df_c = df_raw[df_raw["塗料編號"] == c]
+        total_batches = df_c["製造批號"].nunique()
+        
+        # Check Phase II tracking
+        cb = get_control_batch(c)
+        cb_code = get_control_batch_code(df_c, cb)
+        
+        if cb_code is not None:
+            phase2_batches = df_c[df_c["製造批號"] >= cb_code]["製造批號"].nunique()
+        else:
+            phase2_batches = 0
+            
+        can_calc_initial = "✅ Yes" if total_batches >= 3 else "❌ No"
+        can_recalc_p2 = "✅ Yes" if phase2_batches >= 3 else "❌ No"
+        
         summary_data.append({
             "Color Code": c,
-            "Has Limits Configured": status,
-            "Phase II Control Batch": batch
+            "Total Batches": total_batches,
+            "Phase II Batches": phase2_batches,
+            "Current Limits (Sheet)": status,
+            "Ready for Calc (Total ≥ 3)": can_calc_initial,
+            "Ready for Phase II Recalc (≥ 3)": can_recalc_p2
         })
 
     summary_df = pd.DataFrame(summary_data)
 
     total_c = len(summary_df)
-    has_limit_c = len(summary_df[summary_df["Has Limits Configured"] == "✅ Yes"])
-    no_limit_c = total_c - has_limit_c
+    has_limit_c = len(summary_df[summary_df["Current Limits (Sheet)"] == "✅ Yes"])
+    ready_initial_c = len(summary_df[summary_df["Ready for Calc (Total ≥ 3)"] == "✅ Yes"])
+    ready_recalc_c = len(summary_df[summary_df["Ready for Phase II Recalc (≥ 3)"] == "✅ Yes"])
 
-    # Bảng Report tóm tắt phía trên
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Colors (in Data)", total_c)
-    col2.metric("Colors with Limits (✅)", has_limit_c)
-    col3.metric("Colors Missing Limits (❌/⚠️)", no_limit_c)
+    # High-level Metrics
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total Colors", total_c)
+    col2.metric("Colors with Limits", has_limit_c)
+    col3.metric("Ready to Calculate", ready_initial_c)
+    col4.metric("Ready to Recalculate", ready_recalc_c)
 
     st.markdown("---")
+    st.markdown("### 📊 Comprehensive Status Table")
     
-    # Hiển thị bảng tổng hợp
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
+    
+    st.info("**Guide:**\n- **Ready for Calc**: Has at least 3 batches in total, which is enough to calculate basic Control Limits.\n- **Ready for Phase II Recalc**: Has at least 3 batches *after* the Control Batch, meaning there is enough monitoring data to recalculate specific Phase II limits.")
