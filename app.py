@@ -618,12 +618,12 @@ if app_mode in ["🚀 Main Dashboard", "🎛️ Control Limit Calculator"]:
 
 
 # =========================================================
-# VIEW 3: LIMIT STATUS SUMMARY (GLOBAL OVERVIEW)
+# VIEW 3: LIMIT STATUS SUMMARY (LOGIC NÂNG CẤP)
 # =========================================================
 elif app_mode == "📋 Limit Status Summary":
     
     st.title("📋 Limit Status Summary")
-    st.markdown("Global overview of all color codes, their current control limit configuration, and their readiness for limit calculation/recalculation.")
+    st.markdown("Global overview of all color codes, identifying stable processes and those requiring control limit recalculation.")
 
     all_colors = sorted(df_raw["塗料編號"].dropna().unique())
     summary_data = []
@@ -640,50 +640,80 @@ elif app_mode == "📋 Limit Status Summary":
             else:
                 status = "✅ Yes"
 
-        # Check production volume
+        # Tình trạng tính ban đầu (Initial Calc)
         df_c = df_raw[df_raw["塗料編號"] == c]
         total_batches = df_c["製造批號"].nunique()
+        can_calc_initial = "✅ Yes" if total_batches >= 3 else "❌ No"
         
-        # Check Phase II tracking
+        # Check Phase II data & OOC
         cb = get_control_batch(c)
         cb_code = get_control_batch_code(df_c, cb)
         
+        recalc_status = "❌ Not enough data" # Mặc định
+        
         if cb_code is not None:
-            phase2_batches = df_c[df_c["製造批號"] >= cb_code]["製造批號"].nunique()
+            df_p2 = df_c[df_c["製造批號"] >= cb_code]
+            phase2_batches = df_p2["製造批號"].nunique()
+            
+            if phase2_batches >= 3:
+                if status == "✅ Yes":
+                    # Đếm số điểm OOC trong Phase II so với Sheet LCL/UCL
+                    total_p2_ooc = 0
+                    spc_p2 = {
+                        "ΔL": {"lab": prep_lab(df_p2, "入料檢測 ΔL 正面"), "line": prep_spc(df_p2, "正-北 ΔL", "正-南 ΔL")},
+                        "Δa": {"lab": prep_lab(df_p2, "入料檢測 Δa 正面"), "line": prep_spc(df_p2, "正-北 Δa", "正-南 Δa")},
+                        "Δb": {"lab": prep_lab(df_p2, "入料檢測 Δb 正面"), "line": prep_spc(df_p2, "正-北 Δb", "正-南 Δb")}
+                    }
+                    
+                    for factor in ["ΔL", "Δa", "Δb"]:
+                        # Đếm LINE OOC
+                        lcl_line, ucl_line = get_limit(c, factor, "LINE")
+                        if lcl_line is not None and ucl_line is not None:
+                            vals_line = spc_p2[factor]["line"]["value"]
+                            total_p2_ooc += ((vals_line < lcl_line) | (vals_line > ucl_line)).sum()
+                        
+                        # Đếm LAB OOC
+                        lcl_lab, ucl_lab = get_limit(c, factor, "LAB")
+                        if lcl_lab is not None and ucl_lab is not None:
+                            vals_lab = spc_p2[factor]["lab"]["value"]
+                            total_p2_ooc += ((vals_lab < lcl_lab) | (vals_lab > ucl_lab)).sum()
+                    
+                    # Cập nhật trạng thái
+                    if total_p2_ooc > 0:
+                        recalc_status = f"⚠️ Propose Recalc ({total_p2_ooc} OOCs)"
+                    else:
+                        recalc_status = "✅ Stable (0 OOCs)"
+                else:
+                    recalc_status = "❌ Missing Current Limits"
         else:
             phase2_batches = 0
             
-        can_calc_initial = "✅ Yes" if total_batches >= 5 else "❌ No"
-        can_recalc_p2 = "✅ Yes" if phase2_batches >= 5 else "❌ No"
-        
         summary_data.append({
             "Color Code": c,
             "Total Batches": total_batches,
             "Phase II Batches": phase2_batches,
             "Current Limits (Sheet)": status,
-            "Ready for Calc (Total ≥ 5)": can_calc_initial,
-            "Ready for Phase II Recalc (≥ 5)": can_recalc_p2
+            "Ready for Initial Calc": can_calc_initial,
+            "Recommend Phase II Recalc": recalc_status
         })
 
     summary_df = pd.DataFrame(summary_data)
 
     total_c = len(summary_df)
     has_limit_c = len(summary_df[summary_df["Current Limits (Sheet)"] == "✅ Yes"])
-    ready_initial_c = len(summary_df[summary_df["Ready for Calc (Total ≥ 5)"] == "✅ Yes"])
-    ready_recalc_c = len(summary_df[summary_df["Ready for Phase II Recalc (≥ 5)"] == "✅ Yes"])
+    ready_initial_c = len(summary_df[summary_df["Ready for Initial Calc"] == "✅ Yes"])
+    needs_recalc_c = sum(1 for d in summary_data if "⚠️ Propose Recalc" in d["Recommend Phase II Recalc"])
 
     # High-level Metrics
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Colors", total_c)
-    col2.metric("Colors with Limits", has_limit_c)
-    col3.metric("Ready to Calculate", ready_initial_c)
-    col4.metric("Ready to Recalculate", ready_recalc_c)
+    col2.metric("Colors Configured", has_limit_c)
+    col3.metric("Ready to Calc (Initial)", ready_initial_c)
+    col4.metric("Needs Recalculation", needs_recalc_c, delta="OOC Detected", delta_color="inverse")
 
     st.markdown("---")
     st.markdown("### 📊 Comprehensive Status Table")
     
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
     
-    st.info("**Guide:**\n- **Ready for Calc**: Has at least 5 batches in total, which is enough to calculate basic Control Limits.\n- **Ready for Phase II Recalc**: Has at least 5 batches *after* the Control Batch, meaning there is enough monitoring data to recalculate specific Phase II limits.")
-
-
+    st.info("**Guide:**\n- **Ready for Initial Calc**: Color has at least 3 production batches in total. Eligible for base limit setup.\n- **Recommend Phase II Recalc**: Checks Phase II data against current limits. If there are Out-Of-Control (OOC) points, recalculation is proposed.")
