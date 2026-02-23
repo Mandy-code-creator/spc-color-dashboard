@@ -454,7 +454,7 @@ if app_mode == "🚀 Main Dashboard":
                 st.dataframe(df_plot[[coil_col, thickness_col, dE_col, dL_col, da_col, db_col, time_col]].sort_values(by=dE_col, ascending=False), use_container_width=True)
 
             st.markdown("---")
-            st.header("🔬 PHASE II – THICKNESS CORRELATION (INDEPENDENT MODULE) (Phase II – Per Coil)")
+            st.header("🔬 PHASE II – THICKNESS CORRELATION")
             if control_batch_code is None:
                 st.warning("⚠ Control batch not defined. Phase II cannot be determined.")
             else:
@@ -514,7 +514,6 @@ elif app_mode == "🎛️ Control Limit Calculator":
         calc_factor = st.selectbox("Select Factor", ["ΔL", "Δa", "Δb"], key="calc_factor_sim")
         calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True, key="calc_source_sim")
         
-        # Đưa các ô cấu hình (Settings) từ Sidebar vào thẳng màn hình chính
         st.markdown("---")
         st.markdown("**⚙️ Simulator Settings**")
         
@@ -555,7 +554,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
 
             res_df = pd.DataFrame({
                 "Limit Type": [
-                    "Google Sheet", 
+                    "Current Limits (Sheet)", 
                     f"Std Dev (±{sim_sigma}σ)", 
                     f"IQR (k={sim_iqr_k})"
                 ],
@@ -565,39 +564,55 @@ elif app_mode == "🎛️ Control Limit Calculator":
             })
             st.dataframe(res_df.style.format({"LCL": "{:.3f}", "Center": "{:.3f}", "UCL": "{:.3f}"}, na_rep="-"), hide_index=True)
             
-            plot_choice = st.radio("Select limits to visualize on chart:", ["Standard Deviation (σ)", "IQR"], horizontal=True)
+            st.markdown("---")
+            st.markdown("**Visualize on chart:**")
+            col_cb1, col_cb2, col_cb3 = st.columns(3)
+            with col_cb1:
+                show_sheet = st.checkbox("Current (Sheet)", value=True)
+            with col_cb2:
+                show_sigma = st.checkbox("Std Dev (σ)", value=True)
+            with col_cb3:
+                show_iqr = st.checkbox("IQR", value=True)
 
         else:
             st.warning("Not enough data to calculate.")
 
     with calc_col2:
         if len(active_data) >= 3:
-            fig_calc, ax_calc = plt.subplots(figsize=(10, 5))
+            fig_calc, ax_calc = plt.subplots(figsize=(10, 6))
             ax_calc.plot(active_batch, active_data, "o-", color="#808080", alpha=0.5, label="Data Point")
             
-            if old_lcl is not None and not pd.isna(old_lcl):
-                ax_calc.axhline(old_lcl, color="red", linestyle="--", alpha=0.5, label="Sheet LCL/UCL")
-            if old_ucl is not None and not pd.isna(old_ucl):
-                ax_calc.axhline(old_ucl, color="red", linestyle="--", alpha=0.5)
+            # Vẽ giới hạn cũ từ Sheet
+            if show_sheet and old_lcl is not None and not pd.isna(old_lcl):
+                ax_calc.axhline(old_lcl, color="red", linestyle="--", alpha=0.7, label="Sheet LCL/UCL")
+                ax_calc.axhline(old_ucl, color="red", linestyle="--", alpha=0.7)
+                out_sheet = (active_data < old_lcl) | (active_data > old_ucl)
+                ax_calc.scatter(active_batch[out_sheet], active_data[out_sheet], facecolors='none', edgecolors='red', s=150, linewidth=2, zorder=6, label="Sheet OOC")
                 
-            if plot_choice == "Standard Deviation (σ)":
-                active_lcl, active_ucl, active_center = sigma_lcl, sigma_ucl, mean_val
-                method_name = f"±{sim_sigma}σ"
-            else:
-                active_lcl, active_ucl, active_center = iqr_lcl, iqr_ucl, median_val
-                method_name = f"IQR (k={sim_iqr_k})"
+            # Vẽ giới hạn theo Sigma
+            if show_sigma:
+                ax_calc.axhline(sigma_lcl, color="blue", linewidth=1.5, label=f"±{sim_sigma}σ LCL/UCL")
+                ax_calc.axhline(sigma_ucl, color="blue", linewidth=1.5)
+                out_sigma = (active_data < sigma_lcl) | (active_data > sigma_ucl)
+                ax_calc.scatter(active_batch[out_sigma], active_data[out_sigma], color="blue", marker="x", s=80, zorder=7, label="σ OOC")
 
-            ax_calc.axhline(active_lcl, color="blue", linewidth=2, label=f"Calculated ({method_name})")
-            ax_calc.axhline(active_ucl, color="blue", linewidth=2)
-            ax_calc.axhline(active_center, color="green", linestyle=":", label="Center Line")
+            # Vẽ giới hạn theo IQR
+            if show_iqr:
+                ax_calc.axhline(iqr_lcl, color="orange", linestyle="-.", linewidth=2, label=f"IQR LCL/UCL")
+                ax_calc.axhline(iqr_ucl, color="orange", linestyle="-.", linewidth=2)
+                out_iqr = (active_data < iqr_lcl) | (active_data > iqr_ucl)
+                ax_calc.scatter(active_batch[out_iqr], active_data[out_iqr], color="orange", marker="+", s=120, zorder=8, label="IQR OOC")
 
-            out_new = (active_data < active_lcl) | (active_data > active_ucl)
-            ax_calc.scatter(active_batch[out_new], active_data[out_new], color="blue", s=100, zorder=5, label="New OOC")
+            # Center Line
+            ax_calc.axhline(mean_val, color="green", linestyle=":", alpha=0.5, label="Mean Line")
 
-            ax_calc.set_title(f"New Limits Simulation for {calc_source} - {calc_factor}")
+            ax_calc.set_title(f"Limits Comparison for {calc_source} - {calc_factor}")
+            
+            # Đẩy bảng chú thích (Legend) ra ngoài để không đè lên biểu đồ
             ax_calc.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
+            
             ax_calc.grid(True, alpha=0.3)
             ax_calc.tick_params(axis="x", rotation=45)
-            fig_calc.subplots_adjust(right=0.75)
+            fig_calc.subplots_adjust(right=0.7)
             
             st.pyplot(fig_calc)
