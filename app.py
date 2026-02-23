@@ -684,5 +684,6 @@ elif app_mode == "📋 Limit Status Summary":
     
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
     
-    st.info("**Guide:**\n- **Ready for Calc**: Has at least 3 batches in total, which is enough to calculate basic Control Limits.\n- **Ready for Phase II Recalc**: Has at least 3 batches *after* the Control Batch, meaning there is enough monitoring data to recalculate specific Phase II limits.")
+    st.info("**Guide:**\n- **Ready for Calc**: Has at least 5 batches in total, which is enough to calculate basic Control Limits.\n- **Ready for Phase II Recalc**: Has at least 5 batches *after* the Control Batch, meaning there is enough monitoring data to recalculate specific Phase II limits.")
+
 
