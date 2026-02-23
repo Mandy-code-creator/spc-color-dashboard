@@ -255,23 +255,34 @@ elif app_mode == "📋 Limit Status Summary":
 # =========================================================
 # VIEW 3: CONTROL LIMIT CALCULATOR (NEW LAYOUT)
 # =========================================================
+# VIEW 3: CONTROL LIMIT CALCULATOR (TÙY CHỈNH RIÊNG TỪNG YẾU TỐ)
+# =========================================================
 elif app_mode == "🎛️ Control Limit Calculator":
     st.title("🎛️ Control Limits Analysis & Derived ΔE")
     
-    # 1. KHUNG CÀI ĐẶT (SETTINGS EXPANDER)
+    # 1. KHUNG CÀI ĐẶT (SETTINGS EXPANDER CHIA THEO TỪNG FACTOR)
     with st.expander("⚙️ 設定參數 (Settings)", expanded=True):
-        col_s1, col_s2, col_s3 = st.columns(3)
-        with col_s1:
-            calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True)
-        with col_s2:
-            sig = st.number_input("Sigma Multiplier (K)", value=3.0, step=0.1, help="Used for Standard Deviation limits.")
-        with col_s3:
-            iqr_k = st.number_input("IQR Sensitivity", value=1.5, step=0.1, help="Used for Robust IQR limits.")
+        st.markdown("**Chọn nguồn dữ liệu & Tùy chỉnh tham số riêng cho từng yếu tố:**")
+        calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True)
+        st.divider()
+        
+        # Tạo 3 cột cho 3 yếu tố L, a, b
+        cols = st.columns(3)
+        factors = ["ΔL", "Δa", "Δb"]
+        
+        # Dùng dictionary để lưu thông số riêng biệt
+        sig_dict = {}
+        iqr_dict = {}
+        
+        for i, f in enumerate(factors):
+            with cols[i]:
+                st.markdown(f"🔸 **Tùy chỉnh {f}**")
+                sig_dict[f] = st.number_input(f"Sigma Multiplier (K)", value=3.0, step=0.1, key=f"sig_{f}", help=f"Hệ số Sigma cho {f}")
+                iqr_dict[f] = st.number_input(f"IQR Sensitivity", value=1.5, step=0.1, key=f"iqr_{f}", help=f"Hệ số IQR cho {f}")
 
-    # 2. XỬ LÝ DỮ LIỆU CẢ 3 YẾU TỐ
+    # 2. XỬ LÝ DỮ LIỆU ĐỘC LẬP THEO TỪNG THÔNG SỐ
     calc_res = {}
     dE_max_sq = 0
-    factors = ["ΔL", "Δa", "Δb"]
     
     for f in factors:
         d = spc_data[f][calc_source.lower()]["value"]
@@ -283,6 +294,10 @@ elif app_mode == "🎛️ Control Limit Calculator":
             # Lấy giới hạn cũ từ Sheet
             olcl, oucl = get_limit(color, calc_source, f)
             
+            # Đọc tham số tùy chỉnh riêng biệt của yếu tố này
+            sig = sig_dict[f]
+            iqr_k = iqr_dict[f]
+            
             # Tính giới hạn mới
             std_lcl, std_ucl = m - sig*s, m + sig*s
             iqr_lcl, iqr_ucl = q1 - iqr_k*iqr_val, q3 + iqr_k*iqr_val
@@ -290,6 +305,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
             calc_res[f] = {
                 "data": d, "batch": spc_data[f][calc_source.lower()]["製造批號"],
                 "m": m, "s": s, "median": d.median(),
+                "sig": sig, "iqr_k": iqr_k, # Lưu lại cấu hình để vẽ biểu đồ/bảng
                 "olcl": olcl, "oucl": oucl,
                 "std_lcl": std_lcl, "std_ucl": std_ucl,
                 "iqr_lcl": iqr_lcl, "iqr_ucl": iqr_ucl
@@ -297,45 +313,42 @@ elif app_mode == "🎛️ Control Limit Calculator":
             # Lưu trữ bình phương để tính Derived ΔE (Dựa trên Standard Limit)
             dE_max_sq += max(abs(std_lcl), abs(std_ucl))**2
 
-    # 3. HIỂN THỊ KẾT QUẢ THEO LAYOUT MỚI
+    # 3. HIỂN THỊ KẾT QUẢ THEO TỪNG YẾU TỐ
     if len(calc_res) == 3:
-        # Báo cáo Derived dE ở trên cùng
+        # Báo cáo Derived dE tổng ở trên cùng
         dE_ucl = math.sqrt(dE_max_sq)
-        st.success(f"**🎯 Target Derived ΔE UCL** (Based on Standard ±{sig}σ Limits): **{dE_ucl:.3f}**")
+        st.success(f"**🎯 Target Derived ΔE UCL** (Calculated from separate L, a, b limits): **{dE_ucl:.3f}**")
         st.markdown("---")
 
         # Lặp qua từng yếu tố L, a, b để vẽ Dashboard nhỏ
         for f in factors:
             st.markdown(f"### 📊 Control Limits Analysis: **{f}** ({calc_source})")
             
-            # Chia cột: Biểu đồ (Trái - 70%), Bảng (Phải - 30%)
+            # Chia cột: Biểu đồ (Trái - ~70%), Bảng (Phải - ~30%)
             col_chart, col_table = st.columns([2.2, 1])
             res = calc_res[f]
             
-            # --- CỘT PHẢI: BẢNG & CHÚ THÍCH ---
+            # --- CỘT PHẢI: BẢNG SO SÁNH & THỐNG KÊ ---
             with col_table:
-                # Tạo DataFrame cho bảng Method
                 table_data = [
                     {"Method": "0. Spec (Sheet)", "Min": res["olcl"], "Max": res["oucl"], "Center": "-", "Note": "Current Target"},
-                    {"Method": "1. Standard (σ)", "Min": round(res["std_lcl"], 3), "Max": round(res["std_ucl"], 3), "Center": round(res["m"], 3), "Note": "Basic Stats"},
-                    {"Method": "2. IQR Robust", "Min": round(res["iqr_lcl"], 3), "Max": round(res["iqr_ucl"], 3), "Center": round(res["median"], 3), "Note": "Filtered"}
+                    {"Method": f"1. Standard ({res['sig']}σ)", "Min": round(res["std_lcl"], 3), "Max": round(res["std_ucl"], 3), "Center": round(res["m"], 3), "Note": "Basic Stats"},
+                    {"Method": f"2. IQR (k={res['iqr_k']})", "Min": round(res["iqr_lcl"], 3), "Max": round(res["iqr_ucl"], 3), "Center": round(res["median"], 3), "Note": "Filtered"}
                 ]
                 df_table = pd.DataFrame(table_data)
                 
-                # Hiển thị bảng
                 st.dataframe(
                     df_table.style.format({"Min": "{:.3f}", "Max": "{:.3f}", "Center": "{}"}, na_rep="-"), 
                     hide_index=True, 
                     use_container_width=True
                 )
                 
-                # Hộp thông tin Guide (Giống Color Guide trong hình)
                 st.info(f"**💡 Basic Stats Guide:**\n\n"
                         f"• **Mean (μ):** {res['m']:.3f}\n"
                         f"• **Std Dev (σ):** {res['s']:.3f}\n"
                         f"• **Valid Batches:** {len(res['data'])}")
 
-            # --- CỘT TRÁI: BIỂU ĐỒ ---
+            # --- CỘT TRÁI: BIỂU ĐỒ TRỰC QUAN ---
             with col_chart:
                 fig, ax = plt.subplots(figsize=(10, 4.5))
                 
@@ -347,12 +360,12 @@ elif app_mode == "🎛️ Control Limit Calculator":
                     ax.axhline(res["olcl"], color="black", linestyle="-", linewidth=1.5, label="0. Spec (Sheet)")
                     ax.axhline(res["oucl"], color="black", linestyle="-", linewidth=1.5)
                     
-                # Vẽ Standard Limits (Đỏ)
-                ax.axhline(res["std_lcl"], color="#d62728", linestyle="--", linewidth=1.5, label=f"1. Std (±{sig}σ)")
+                # Vẽ Standard Limits (Đỏ) - Hiển thị số Sigma đã cài riêng
+                ax.axhline(res["std_lcl"], color="#d62728", linestyle="--", linewidth=1.5, label=f"1. Std (±{res['sig']}σ)")
                 ax.axhline(res["std_ucl"], color="#d62728", linestyle="--", linewidth=1.5)
                 
-                # Vẽ IQR Limits (Xanh)
-                ax.axhline(res["iqr_lcl"], color="#1f77b4", linestyle=":", linewidth=2, label="2. IQR Robust")
+                # Vẽ IQR Limits (Xanh) - Hiển thị hệ số k đã cài riêng
+                ax.axhline(res["iqr_lcl"], color="#1f77b4", linestyle=":", linewidth=2, label=f"2. IQR (k={res['iqr_k']})")
                 ax.axhline(res["iqr_ucl"], color="#1f77b4", linestyle=":", linewidth=2)
                 
                 # Vẽ đường Center (Xanh lá)
@@ -362,12 +375,12 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=9)
                 ax.grid(True, alpha=0.3)
                 plt.xticks(rotation=45)
-                fig.subplots_adjust(right=0.75, bottom=0.2) # Chừa chỗ cho legend và trục x
+                fig.subplots_adjust(right=0.75, bottom=0.2) # Chừa chỗ cho legend và nhãn trục x
                 
                 st.pyplot(fig)
                 plt.close(fig)
                 
-            st.markdown("---") # Đường gạch ngang phân cách giữa các yếu tố
+            st.markdown("---") # Đường gạch ngang phân cách giữa L, a, b
             
     else:
         st.warning("Not enough data (min 3 batches) to calculate limits and present the analysis.")
