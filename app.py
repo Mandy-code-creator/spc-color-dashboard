@@ -33,9 +33,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# =========================
-# REFRESH BUTTON
-# =========================
 if st.button("🔄 Refresh data"):
     st.cache_data.clear()
     st.rerun()
@@ -49,38 +46,68 @@ DATA_URL = "https://docs.google.com/spreadsheets/d/1lqsLKSoDTbtvAsHzJaEri8tPo5pA
 LIMIT_URL = "https://docs.google.com/spreadsheets/d/1jbP8puBraQ5Xgs9oIpJ7PlLpjIK3sltrgbrgKUcJ-Qo/export?format=csv"
 
 # =========================
-# LOAD DATA
+# LOAD DATA & TẨY RỬA DỮ LIỆU
 # =========================
 @st.cache_data(ttl=300)
 def load_data():
     df = pd.read_csv(DATA_URL)
     df["Time"] = pd.to_datetime(df["Time"])
-    df.columns = df.columns.str.replace(r"\s+", " ", regex=True).str.strip()
     return df
 
 @st.cache_data(ttl=300)
 def load_limit():
-    df = pd.read_csv(LIMIT_URL)
-    df.columns = df.columns.str.strip()
-    return df
+    return pd.read_csv(LIMIT_URL)
 
 df_raw = load_data()
 limit_df = load_limit()
 
+# Dọn sạch khoảng trắng thừa trong tên cột của cả 2 sheet
+df_raw.columns = df_raw.columns.str.replace("\r\n", " ", regex=False).str.replace("\n", " ", regex=False).str.replace("　", " ", regex=False).str.replace(r"\s+", " ", regex=True).str.strip()
+limit_df.columns = limit_df.columns.str.replace("\r\n", " ", regex=False).str.replace("\n", " ", regex=False).str.replace("　", " ", regex=False).str.replace(r"\s+", " ", regex=True).str.strip()
+
+numeric_columns = [
+    "入料檢測 ΔL 正面", "入料檢測 Δa 正面", "入料檢測 Δb 正面",
+    "正-北 ΔL", "正-南 ΔL", "正-北 Δa", "正-南 Δa", "正-北 Δb", "正-南 Δb"
+]
+for col in numeric_columns:
+    if col in df_raw.columns:
+        df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce')
+
 # =========================
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS (SỬA LỖI ĐỌC CỘT GIỚI HẠN)
 # =========================
-def get_limit(color, prefix, factor):
-    row = limit_df[limit_df["Color_code"] == color]
+def get_limit(color, source, factor):
+    # Loại bỏ khoảng trắng thừa ở mã màu trong sheet Limit để chống lỗi so sánh
+    color_clean = str(color).strip()
+    mask = limit_df["Color_code"].astype(str).str.strip() == color_clean
+    row = limit_df[mask]
+    
     if row.empty: return None, None
-    col_lcl = f"{factor} {prefix} LCL"
-    col_ucl = f"{factor} {prefix} UCL"
-    lcl = row[col_lcl].values[0] if col_lcl in row.columns else None
-    ucl = row[col_ucl].values[0] if col_ucl in row.columns else None
+    source = source.upper() 
+    
+    # Quét thông minh nhiều định dạng tên cột có thể xảy ra
+    possible_lcls = [f"{factor} {source} LCL", f"{source} {factor} LCL"]
+    possible_ucls = [f"{factor} {source} UCL", f"{source} {factor} UCL"]
+    
+    lcl, ucl = None, None
+    for col in possible_lcls:
+        if col in row.columns:
+            val = row[col].values[0]
+            if pd.notnull(val): lcl = float(val)
+            break
+            
+    for col in possible_ucls:
+        if col in row.columns:
+            val = row[col].values[0]
+            if pd.notnull(val): ucl = float(val)
+            break
+            
     return lcl, ucl
 
 def get_control_batch(color):
-    row = limit_df[limit_df["Color_code"] == color]
+    color_clean = str(color).strip()
+    mask = limit_df["Color_code"].astype(str).str.strip() == color_clean
+    row = limit_df[mask]
     if row.empty: return None
     value = row["Control_batch"].values[0]
     if pd.isna(value): return None
@@ -93,28 +120,17 @@ def get_control_batch_code(df_unfiltered, control_batch):
     if 1 <= control_batch <= len(batch_order): return batch_order.loc[control_batch - 1, "製造批號"]
     return None
 
-def detect_out_of_control(spc_df, lcl, ucl):
-    mean, std = spc_df["value"].mean(), spc_df["value"].std()
-    res = spc_df.copy()
-    res["Rule_CL"] = ((res["value"] < lcl) | (res["value"] > ucl)) if lcl is not None and ucl is not None else False
-    res["Rule_3Sigma"] = ((res["value"] > mean + 3*std) | (res["value"] < mean - 3*std)) if std > 0 else False
-    res["Out_of_Control"] = (res["Rule_CL"] | res["Rule_3Sigma"])
-    return res[res["Out_of_Control"]]
-
-# HÀM TÍNH TRUNG BÌNH LÔ CHUẨN
 def calculate_batch_averages(df_filtered_color):
     res = {}
     for f in ["ΔL", "Δa", "Δb"]:
         tmp = df_filtered_color.copy()
         
-        # LINE: Tính trung bình Bắc/Nam của từng dòng, sau đó trung bình theo lô
         col_n, col_s = f"正-北 {f}", f"正-南 {f}"
         tmp[col_n] = pd.to_numeric(tmp[col_n], errors='coerce')
         tmp[col_s] = pd.to_numeric(tmp[col_s], errors='coerce')
         tmp["row_avg"] = tmp[[col_n, col_s]].mean(axis=1)
         line_b = tmp.groupby("製造批號", as_index=False).agg({"Time": "min", "row_avg": "mean"}).rename(columns={"row_avg": "value"}).dropna()
         
-        # LAB: Tính trung bình Lab theo lô
         col_lab = f"入料檢測 {f} 正面"
         tmp[col_lab] = pd.to_numeric(tmp[col_lab], errors='coerce')
         lab_b = tmp.groupby("製造批號", as_index=False).agg({"Time": "min", col_lab: "mean"}).rename(columns={col_lab: "value"}).dropna()
@@ -123,7 +139,7 @@ def calculate_batch_averages(df_filtered_color):
     return res
 
 # =========================
-# SIDEBAR – NAVIGATION & FILTERS
+# SIDEBAR – NAVIGATION
 # =========================
 st.sidebar.markdown("### 📊 View Mode")
 app_mode = st.sidebar.radio(
@@ -140,24 +156,21 @@ control_batch = get_control_batch(color)
 control_batch_code = get_control_batch_code(df_color, control_batch)
 
 all_years = sorted(df_color["Time"].dt.year.dropna().astype(int).unique())
-sel_years = st.sidebar.multiselect("📅 Year", options=all_years, default=[])
+sel_years = st.sidebar.multiselect("📅 Year (Leave empty for ALL)", options=all_years, default=[])
 all_months = sorted(df_color["Time"].dt.month.dropna().astype(int).unique())
-sel_months = st.sidebar.multiselect("📅 Month", options=all_months, default=[])
+sel_months = st.sidebar.multiselect("📅 Month (optional)", options=all_months, default=[])
 
 df_filtered = df_color.copy()
 if sel_years: df_filtered = df_filtered[df_filtered["Time"].dt.year.isin(sel_years)]
 if sel_months: df_filtered = df_filtered[df_filtered["Time"].dt.month.isin(sel_months)]
 
-# DỮ LIỆU SPC DÙNG CHUNG CHO TẤT CẢ CÁC VIEW
 spc_data = calculate_batch_averages(df_filtered)
+
 
 # =========================================================
 # VIEW 1: MAIN DASHBOARD
 # =========================================================
 if app_mode == "🚀 Main Dashboard":
-    st.title(f"📊 SPC Color Dashboard — {color}")
-    
-    # Validation Table
     st.markdown("### 🔎 Batch Summary (Before SPC Aggregation)")
     if not df_filtered.empty:
         batch_summary = (
@@ -175,33 +188,41 @@ if app_mode == "🚀 Main Dashboard":
         batch_summary["LINE_Δa"] = batch_summary[["LINE_Δa_N", "LINE_Δa_S"]].mean(axis=1)
         batch_summary["LINE_Δb"] = batch_summary[["LINE_Δb_N", "LINE_Δb_S"]].mean(axis=1)
         st.dataframe(batch_summary[["製造批號", "First_Time", "LAB_ΔL", "LAB_Δa", "LAB_Δb", "LINE_ΔL", "LINE_Δa", "LINE_Δb", "Rows_in_Batch"]], use_container_width=True, hide_index=True)
-    
-    st.markdown("---")
-    if control_batch_code: st.sidebar.info(f"🔔 Control batch: #{control_batch} → {control_batch_code}")
+    else:
+        st.warning("No data after filtering.")
 
-    # Statistics
+    st.sidebar.divider()
+    if control_batch_code is not None:
+        st.sidebar.info(f"🔔 **Control batch**\n\nBatch #{control_batch} → **{control_batch_code}**")
+    
+    st.title(f"📊 SPC Color Dashboard — {color}")
+    
     sum_line, sum_lab = [], []
     for k in ["ΔL", "Δa", "Δb"]:
-        vl = spc_data[k]["line"]["value"]
-        if not vl.empty: sum_line.append({"Factor": k, "Min": round(vl.min(), 3), "Max": round(vl.max(), 3), "Mean": round(vl.mean(), 3), "Std": round(vl.std(), 3), "n": len(vl)})
-        vb = spc_data[k]["lab"]["value"]
-        if not vb.empty: sum_lab.append({"Factor": k, "Min": round(vb.min(), 3), "Max": round(vb.max(), 3), "Mean": round(vb.mean(), 3), "Std": round(vb.std(), 3), "n": len(vb)})
-    
-    c1, c2 = st.columns(2)
-    with c1: st.markdown("#### 🏭 LINE"); st.dataframe(pd.DataFrame(sum_line), hide_index=True)
-    with c2: st.markdown("#### 🧪 LAB"); st.dataframe(pd.DataFrame(sum_lab), hide_index=True)
+        line_vals = spc_data[k]["line"]["value"]
+        if not line_vals.empty:
+            sum_line.append({"Factor": k, "Min": round(line_vals.min(), 2), "Max": round(line_vals.max(), 2), "Mean": round(line_vals.mean(), 2), "Std Dev": round(line_vals.std(), 2), "n": len(line_vals)})
+        lab_vals = spc_data[k]["lab"]["value"]
+        if not lab_vals.empty:
+            sum_lab.append({"Factor": k, "Min": round(lab_vals.min(), 2), "Max": round(lab_vals.max(), 2), "Mean": round(lab_vals.mean(), 2), "Std Dev": round(lab_vals.std(), 2), "n": len(lab_vals)})
 
-    # Charts
+    col1, col2 = st.columns(2)
+    with col1: st.markdown("#### 🏭 LINE Summary"); st.dataframe(pd.DataFrame(sum_line), use_container_width=True, hide_index=True)
+    with col2: st.markdown("#### 🧪 LAB Summary"); st.dataframe(pd.DataFrame(sum_lab), use_container_width=True, hide_index=True)
+
     for k in ["ΔL", "Δa", "Δb"]:
         fig, ax = plt.subplots(figsize=(12, 4))
         ax.plot(spc_data[k]["lab"]["製造批號"], spc_data[k]["lab"]["value"], "o-", label="LAB", color="#1f77b4")
         ax.plot(spc_data[k]["line"]["製造批號"], spc_data[k]["line"]["value"], "o-", label="LINE", color="#2ca02c")
         
         lcl, ucl = get_limit(color, "LINE", k)
-        if lcl is not None: ax.axhline(lcl, color="red", linestyle="--"); ax.axhline(ucl, color="red", linestyle="--")
-        if control_batch_code: ax.axvline(control_batch_code, color="brown", linestyle=":", label="Phase II")
+        if lcl is not None: 
+            ax.axhline(lcl, color="red", linestyle="--", label="Sheet Limit")
+            ax.axhline(ucl, color="red", linestyle="--")
+        if control_batch_code: ax.axvline(x=control_batch_code, color="#b22222", linestyle="--", label="Phase II")
         
-        ax.set_title(f"{k} Trend Analysis"); ax.legend(loc="upper left"); ax.grid(True, alpha=0.3); plt.xticks(rotation=45); st.pyplot(fig)
+        ax.set_title(f"Trend for {k}"); ax.legend(loc="upper left"); ax.grid(True); plt.xticks(rotation=45)
+        st.pyplot(fig)
 
 
 # =========================================================
@@ -212,7 +233,7 @@ elif app_mode == "📋 Limit Status Summary":
     st.markdown("Global overview of all color codes, identifying stable processes and those requiring control limit recalculation.")
 
     col_set1, col_set2 = st.columns(2)
-    with col_set1: c_th = st.number_input("Consecutive OOC threshold (Rule 4):", 1, 10, 2)
+    with col_set1: c_th = st.number_input("Consecutive OOC threshold:", 1, 10, 2)
     with col_set2: t_th = st.number_input("Total OOC threshold:", 1, 20, 5)
 
     def max_consecutive_true(s):
@@ -220,8 +241,17 @@ elif app_mode == "📋 Limit Status Summary":
 
     summary_data = []
     for c in sorted(df_raw["塗料編號"].dropna().unique()):
-        row = limit_df[limit_df["Color_code"] == c]
-        status = "✅ Yes" if not row.empty and not row.filter(like="LCL").isna().all().all() else "❌ No"
+        # Xóa khoảng trắng để check limit chính xác hơn
+        c_clean = str(c).strip()
+        mask = limit_df["Color_code"].astype(str).str.strip() == c_clean
+        row = limit_df[mask]
+        
+        status = "❌ No"
+        if not row.empty:
+            limit_cols = [col for col in row.columns if "LCL" in col or "UCL" in col]
+            if not row[limit_cols].isna().all().all():
+                status = "✅ Yes"
+
         df_c = df_raw[df_raw["塗料編號"] == c].sort_values("Time")
         cb_code = get_control_batch_code(df_c, get_control_batch(c))
         recalc = "❌ Insufficient Data"
@@ -235,8 +265,8 @@ elif app_mode == "📋 Limit Status Summary":
                     for src in ["LINE", "LAB"]:
                         lcl, ucl = get_limit(c, src, f)
                         if lcl is not None:
-                            mask = (p2_data[f][src.lower()]["value"] < lcl) | (p2_data[f][src.lower()]["value"] > ucl)
-                            m_con, m_tot = max(m_con, max_consecutive_true(mask)), max(m_tot, mask.sum())
+                            mask_val = (p2_data[f][src.lower()]["value"] < lcl) | (p2_data[f][src.lower()]["value"] > ucl)
+                            m_con, m_tot = max(m_con, max_consecutive_true(mask_val)), max(m_tot, mask_val.sum())
                 recalc = "⚠️ Propose Recalc" if (m_con >= c_th or m_tot >= t_th) else "✅ Stable"
         
         summary_data.append({"Color Code": c, "Total Batches": df_c["製造批號"].nunique(), "Limits Config": status, "Recalc Status": recalc})
@@ -251,9 +281,6 @@ elif app_mode == "📋 Limit Status Summary":
 
 
 # =========================================================
-# VIEW 3: LIMIT SIMULATOR
-# =========================================================
-# VIEW 3: CONTROL LIMIT CALCULATOR (NEW LAYOUT)
 # VIEW 3: CONTROL LIMIT CALCULATOR (NEW LAYOUT + dE RULE)
 # =========================================================
 elif app_mode == "🎛️ Control Limit Calculator":
