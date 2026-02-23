@@ -232,32 +232,38 @@ st.sidebar.divider()
 
 # =========================
 # =========================
-# =========================
 # SIDEBAR: LIMIT SIMULATOR SETTINGS
 # =========================
 st.sidebar.markdown("### 🛠 Limit Simulator Settings")
 st.sidebar.caption("Configure settings for the control limit calculator")
 
-sim_method = st.sidebar.radio(
-    "Calculation Method", 
-    ["Standard Deviation (σ)", "IQR"], 
-    key="sim_method_sb"
+# Dùng text_input để người dùng tự do gõ số thay vì nút tăng/giảm
+sigma_input = st.sidebar.text_input(
+    "Sigma Multiplier (σ)", 
+    value="3.0", 
+    key="sim_sigma_val",
+    help="Formula: Mean ± σ * Standard Deviation. Default is 3.0"
 )
 
-if sim_method == "Standard Deviation (σ)":
-    sim_sigma = st.sidebar.number_input(
-        "Sigma Multiplier (σ)", 
-        min_value=0.1, max_value=10.0, value=3.0, step=0.1, 
-        key="sim_sigma_val",
-        help="Formula: Mean ± σ * Standard Deviation"
-    )
-else:
-    sim_iqr_k = st.sidebar.number_input(
-        "IQR Multiplier (k)", 
-        min_value=0.1, max_value=10.0, value=1.5, step=0.1, 
-        key="sim_iqr_k",
-        help="Formula: Q1 - k * IQR and Q3 + k * IQR"
-    )
+iqr_input = st.sidebar.text_input(
+    "IQR Multiplier (k)", 
+    value="1.5", 
+    key="sim_iqr_k",
+    help="Formula: Q1 - k * IQR and Q3 + k * IQR. Default is 1.5"
+)
+
+# Chuyển đổi dữ liệu gõ vào thành số thực (float). Nếu gõ sai định dạng, tự động trả về mặc định.
+try:
+    sim_sigma = float(sigma_input)
+except ValueError:
+    sim_sigma = 3.0
+    st.sidebar.error("Invalid input for σ. Using default 3.0")
+
+try:
+    sim_iqr_k = float(iqr_input)
+except ValueError:
+    sim_iqr_k = 1.5
+    st.sidebar.error("Invalid input for k. Using default 1.5")
 # =========================
 # OUT-OF-CONTROL DETECTION
 # =========================
@@ -777,3 +783,4 @@ with calc_col2:
         fig_calc.subplots_adjust(right=0.75)
         
         st.pyplot(fig_calc)
+
