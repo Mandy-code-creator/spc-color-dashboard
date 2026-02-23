@@ -109,13 +109,21 @@ for col in numeric_columns:
 # =========================
 # HELPER FUNCTIONS
 # =========================
+# =========================
+# HELPER FUNCTIONS
+# =========================
 def get_limit(color, prefix, factor):
     row = limit_df[limit_df["Color_code"] == color]
     if row.empty: return None, None
-    return (
-        row.get(f"{factor} {prefix} LCL", [None]).values[0],
-        row.get(f"{factor} {prefix} UCL", [None]).values[0]
-    )
+    
+    col_lcl = f"{factor} {prefix} LCL"
+    col_ucl = f"{factor} {prefix} UCL"
+    
+    # Kiểm tra xem cột có tồn tại trong Google Sheet không trước khi lấy giá trị
+    lcl = row[col_lcl].values[0] if col_lcl in row.columns else None
+    ucl = row[col_ucl].values[0] if col_ucl in row.columns else None
+    
+    return lcl, ucl
 
 def get_control_batch(color):
     row = limit_df[limit_df["Color_code"] == color]
@@ -789,3 +797,4 @@ elif app_mode == "📋 Limit Status Summary":
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
     
     st.info("**Guide:**\n- **Ready for Calc**: Has at least 3 batches in total. Eligible for setting initial limits.\n- **Recommend Recalc**: Analyzes Phase II sequence based on the Alert Settings above. Recalculation is proposed if ANY factor (L, a, b in LAB or LINE) breaches the consecutive or total threshold.")
+
