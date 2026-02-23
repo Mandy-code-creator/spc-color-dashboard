@@ -168,15 +168,15 @@ app_mode = st.sidebar.radio(
     "Select View Mode",
     [
         "🚀 Main Dashboard", 
-        "📋 Limit Status Summary",
-        "🎛️ Control Limit Calculator"
+        "🎛️ Control Limit Calculator",
+        "📋 Limit Status Summary"
     ],
     label_visibility="collapsed"
 )
 
 
 # =========================================================
-# VIEWS 1 & 3: SPECIFIC COLOR ANALYSIS
+# VIEWS 1 & 2: SPECIFIC COLOR ANALYSIS
 # =========================================================
 if app_mode in ["🚀 Main Dashboard", "🎛️ Control Limit Calculator"]:
     
@@ -534,3 +534,186 @@ if app_mode in ["🚀 Main Dashboard", "🎛️ Control Limit Calculator"]:
 
             try: sim_iqr_k = float(iqr_input)
             except ValueError: sim_iqr_k = 1.5; st.error("Invalid input for k. Using 1.5")
+            
+            st.markdown("---")
+            
+            active_data = spc[calc_factor][calc_source.lower()]["value"].dropna()
+            active_batch = spc[calc_factor][calc_source.lower()]["製造批號"]
+
+            if len(active_data) >= 3:
+                mean_val = active_data.mean()
+                std_val = active_data.std()
+                sigma_lcl = mean_val - sim_sigma * std_val
+                sigma_ucl = mean_val + sim_sigma * std_val
+                
+                q1 = active_data.quantile(0.25)
+                q3 = active_data.quantile(0.75)
+                iqr_val = q3 - q1
+                iqr_lcl = q1 - sim_iqr_k * iqr_val
+                iqr_ucl = q3 + sim_iqr_k * iqr_val
+                median_val = active_data.median()
+                
+                old_lcl, old_ucl = get_limit(color, calc_factor, calc_source)
+                
+                st.markdown("**Calculation Results (Comparison)**")
+                st.caption(f"Stats: Mean={mean_val:.3f}, Std={std_val:.3f} | Q1={q1:.3f}, Q3={q3:.3f}, IQR={iqr_val:.3f}")
+
+                res_df = pd.DataFrame({
+                    "Limit Type": [
+                        "Current Limits (Sheet)", 
+                        f"Std Dev (±{sim_sigma}σ)", 
+                        f"IQR (k={sim_iqr_k})"
+                    ],
+                    "LCL": [old_lcl, sigma_lcl, iqr_lcl],
+                    "Center": [None, mean_val, median_val],
+                    "UCL": [old_ucl, sigma_ucl, iqr_ucl]
+                })
+                st.dataframe(res_df.style.format({"LCL": "{:.3f}", "Center": "{:.3f}", "UCL": "{:.3f}"}, na_rep="-"), hide_index=True)
+                
+                st.markdown("---")
+                st.markdown("**Visualize on chart:**")
+                col_cb1, col_cb2, col_cb3 = st.columns(3)
+                with col_cb1:
+                    show_sheet = st.checkbox("Current (Sheet)", value=True)
+                with col_cb2:
+                    show_sigma = st.checkbox("Std Dev (σ)", value=True)
+                with col_cb3:
+                    show_iqr = st.checkbox("IQR", value=True)
+
+            else:
+                st.warning("Not enough data to calculate.")
+
+        with calc_col2:
+            if len(active_data) >= 3:
+                fig_calc, ax_calc = plt.subplots(figsize=(10, 6))
+                ax_calc.plot(active_batch, active_data, "o-", color="#808080", alpha=0.5, label="Data Point")
+                
+                if show_sheet and old_lcl is not None and not pd.isna(old_lcl):
+                    ax_calc.axhline(old_lcl, color="red", linestyle="--", alpha=0.7, label="Sheet LCL/UCL")
+                    ax_calc.axhline(old_ucl, color="red", linestyle="--", alpha=0.7)
+                    out_sheet = (active_data < old_lcl) | (active_data > old_ucl)
+                    ax_calc.scatter(active_batch[out_sheet], active_data[out_sheet], facecolors='none', edgecolors='red', s=150, linewidth=2, zorder=6, label="Sheet OOC")
+                    
+                if show_sigma:
+                    ax_calc.axhline(sigma_lcl, color="blue", linewidth=1.5, label=f"±{sim_sigma}σ LCL/UCL")
+                    ax_calc.axhline(sigma_ucl, color="blue", linewidth=1.5)
+                    out_sigma = (active_data < sigma_lcl) | (active_data > sigma_ucl)
+                    ax_calc.scatter(active_batch[out_sigma], active_data[out_sigma], color="blue", marker="x", s=80, zorder=7, label="σ OOC")
+
+                if show_iqr:
+                    ax_calc.axhline(iqr_lcl, color="orange", linestyle="-.", linewidth=2, label=f"IQR LCL/UCL")
+                    ax_calc.axhline(iqr_ucl, color="orange", linestyle="-.", linewidth=2)
+                    out_iqr = (active_data < iqr_lcl) | (active_data > iqr_ucl)
+                    ax_calc.scatter(active_batch[out_iqr], active_data[out_iqr], color="orange", marker="+", s=120, zorder=8, label="IQR OOC")
+
+                ax_calc.axhline(mean_val, color="green", linestyle=":", alpha=0.5, label="Mean Line")
+
+                ax_calc.set_title(f"Limits Comparison for {calc_source} - {calc_factor}")
+                ax_calc.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
+                ax_calc.grid(True, alpha=0.3)
+                ax_calc.tick_params(axis="x", rotation=45)
+                fig_calc.subplots_adjust(right=0.7)
+                
+                st.pyplot(fig_calc)
+
+
+# =========================================================
+# VIEW 3: LIMIT STATUS SUMMARY (LOGIC NÂNG CẤP)
+# =========================================================
+elif app_mode == "📋 Limit Status Summary":
+    
+    st.title("📋 Limit Status Summary")
+    st.markdown("Global overview of all color codes, identifying stable processes and those requiring control limit recalculation.")
+
+    all_colors = sorted(df_raw["塗料編號"].dropna().unique())
+    summary_data = []
+
+    for c in all_colors:
+        # Check current limits in Sheet
+        row = limit_df[limit_df["Color_code"] == c]
+        if row.empty:
+            status = "❌ No"
+        else:
+            limit_cols = [col for col in row.columns if "LCL" in col or "UCL" in col]
+            if row[limit_cols].isna().all().all():
+                status = "⚠️ Blank"
+            else:
+                status = "✅ Yes"
+
+        # Tình trạng tính ban đầu (Initial Calc)
+        df_c = df_raw[df_raw["塗料編號"] == c]
+        total_batches = df_c["製造批號"].nunique()
+        can_calc_initial = "✅ Yes" if total_batches >= 3 else "❌ No"
+        
+        # Check Phase II data & OOC
+        cb = get_control_batch(c)
+        cb_code = get_control_batch_code(df_c, cb)
+        
+        recalc_status = "❌ Not enough data" # Mặc định
+        
+        if cb_code is not None:
+            df_p2 = df_c[df_c["製造批號"] >= cb_code]
+            phase2_batches = df_p2["製造批號"].nunique()
+            
+            if phase2_batches >= 3:
+                if status == "✅ Yes":
+                    # Đếm số điểm OOC trong Phase II so với Sheet LCL/UCL
+                    total_p2_ooc = 0
+                    spc_p2 = {
+                        "ΔL": {"lab": prep_lab(df_p2, "入料檢測 ΔL 正面"), "line": prep_spc(df_p2, "正-北 ΔL", "正-南 ΔL")},
+                        "Δa": {"lab": prep_lab(df_p2, "入料檢測 Δa 正面"), "line": prep_spc(df_p2, "正-北 Δa", "正-南 Δa")},
+                        "Δb": {"lab": prep_lab(df_p2, "入料檢測 Δb 正面"), "line": prep_spc(df_p2, "正-北 Δb", "正-南 Δb")}
+                    }
+                    
+                    for factor in ["ΔL", "Δa", "Δb"]:
+                        # Đếm LINE OOC
+                        lcl_line, ucl_line = get_limit(c, factor, "LINE")
+                        if lcl_line is not None and ucl_line is not None:
+                            vals_line = spc_p2[factor]["line"]["value"]
+                            total_p2_ooc += ((vals_line < lcl_line) | (vals_line > ucl_line)).sum()
+                        
+                        # Đếm LAB OOC
+                        lcl_lab, ucl_lab = get_limit(c, factor, "LAB")
+                        if lcl_lab is not None and ucl_lab is not None:
+                            vals_lab = spc_p2[factor]["lab"]["value"]
+                            total_p2_ooc += ((vals_lab < lcl_lab) | (vals_lab > ucl_lab)).sum()
+                    
+                    # Cập nhật trạng thái
+                    if total_p2_ooc > 0:
+                        recalc_status = f"⚠️ Propose Recalc ({total_p2_ooc} OOCs)"
+                    else:
+                        recalc_status = "✅ Stable (0 OOCs)"
+                else:
+                    recalc_status = "❌ Missing Current Limits"
+        else:
+            phase2_batches = 0
+            
+        summary_data.append({
+            "Color Code": c,
+            "Total Batches": total_batches,
+            "Phase II Batches": phase2_batches,
+            "Current Limits (Sheet)": status,
+            "Ready for Initial Calc": can_calc_initial,
+            "Recommend Phase II Recalc": recalc_status
+        })
+
+    summary_df = pd.DataFrame(summary_data)
+
+    total_c = len(summary_df)
+    has_limit_c = len(summary_df[summary_df["Current Limits (Sheet)"] == "✅ Yes"])
+    ready_initial_c = len(summary_df[summary_df["Ready for Initial Calc"] == "✅ Yes"])
+    needs_recalc_c = sum(1 for d in summary_data if "⚠️ Propose Recalc" in d["Recommend Phase II Recalc"])
+
+    # High-level Metrics
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total Colors", total_c)
+    col2.metric("Colors Configured", has_limit_c)
+    col3.metric("Ready to Calc (Initial)", ready_initial_c)
+    col4.metric("Needs Recalculation", needs_recalc_c, delta="OOC Detected", delta_color="inverse")
+
+    st.markdown("---")
+    st.markdown("### 📊 Comprehensive Status Table")
+    
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+    
+    st.info("**Guide:**\n- **Ready for Initial Calc**: Color has at least 3 production batches in total. Eligible for base limit setup.\n- **Recommend Phase II Recalc**: Checks Phase II data against current limits. If there are Out-Of-Control (OOC) points, recalculation is proposed.")
