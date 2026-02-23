@@ -232,6 +232,7 @@ st.sidebar.divider()
 
 # =========================
 # =========================
+# =========================
 # SIDEBAR: LIMIT SIMULATOR SETTINGS
 # =========================
 st.sidebar.markdown("### 🛠 Limit Simulator Settings")
@@ -244,15 +245,15 @@ sim_method = st.sidebar.radio(
 )
 
 if sim_method == "Standard Deviation (σ)":
-    sim_k = st.sidebar.number_input(
-        "Input multiplier (k) for σ", 
+    sim_sigma = st.sidebar.number_input(
+        "Sigma Multiplier (σ)", 
         min_value=0.1, max_value=10.0, value=3.0, step=0.1, 
-        key="sim_sigma_k",
-        help="Formula: Mean ± k * Standard Deviation"
+        key="sim_sigma_val",
+        help="Formula: Mean ± σ * Standard Deviation"
     )
 else:
-    sim_k = st.sidebar.number_input(
-        "Input multiplier (k) for IQR", 
+    sim_iqr_k = st.sidebar.number_input(
+        "IQR Multiplier (k)", 
         min_value=0.1, max_value=10.0, value=1.5, step=0.1, 
         key="sim_iqr_k",
         help="Formula: Q1 - k * IQR and Q3 + k * IQR"
@@ -722,20 +723,20 @@ with calc_col1:
         if sim_method == "Standard Deviation (σ)":
             mean_val = active_data.mean()
             std_val = active_data.std()
-            calc_results["LCL"] = mean_val - sim_k * std_val
-            calc_results["UCL"] = mean_val + sim_k * std_val
+            calc_results["LCL"] = mean_val - sim_sigma * std_val
+            calc_results["UCL"] = mean_val + sim_sigma * std_val
             calc_results["Center"] = mean_val
-            st.info(f"**Mean:** {mean_val:.3f} | **Std:** {std_val:.3f} | **Multiplier (k):** {sim_k}")
-            method_label = f"±{sim_k}σ"
+            st.info(f"**Mean:** {mean_val:.3f} | **Std:** {std_val:.3f} | **Sigma (σ):** {sim_sigma}")
+            method_label = f"±{sim_sigma}σ"
         else: # IQR
             q1 = active_data.quantile(0.25)
             q3 = active_data.quantile(0.75)
             iqr_val = q3 - q1
-            calc_results["LCL"] = q1 - sim_k * iqr_val
-            calc_results["UCL"] = q3 + sim_k * iqr_val
+            calc_results["LCL"] = q1 - sim_iqr_k * iqr_val
+            calc_results["UCL"] = q3 + sim_iqr_k * iqr_val
             calc_results["Center"] = active_data.median()
-            st.info(f"**Q1:** {q1:.3f} | **Q3:** {q3:.3f} | **IQR:** {iqr_val:.3f} | **Multiplier (k):** {sim_k}")
-            method_label = f"IQR (k={sim_k})"
+            st.info(f"**Q1:** {q1:.3f} | **Q3:** {q3:.3f} | **IQR:** {iqr_val:.3f} | **Multiplier (k):** {sim_iqr_k}")
+            method_label = f"IQR (k={sim_iqr_k})"
             
         old_lcl, old_ucl = get_limit(color, calc_factor, calc_source)
         
