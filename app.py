@@ -107,7 +107,7 @@ for col in numeric_columns:
         df[col] = pd.to_numeric(df[col], errors='coerce')
 
 # =========================
-# LIMIT FUNCTIONS
+# LIMIT FUNCTIONS (CẬP NHẬT PHƯƠNG PHÁP IQR)
 # =========================
 def get_limit(color, prefix, factor):
     row = limit_df[limit_df["Color_code"] == color]
@@ -119,15 +119,21 @@ def get_limit(color, prefix, factor):
     )
 
 def get_active_limit(color, prefix, factor, mode, series):
-    """Lấy giới hạn cố định hoặc tự động tính toán (±3σ) dựa trên View Mode"""
+    """Lấy giới hạn cố định hoặc tự động tính toán (±3σ hoặc IQR) dựa trên View Mode"""
     sheet_lcl, sheet_ucl = get_limit(color, prefix, factor)
+    clean_series = series.dropna()
     
-    if mode == "Calculated (±3σ from data)":
-        clean_series = series.dropna()
-        if len(clean_series) >= 2:
+    if len(clean_series) >= 2:
+        if mode == "Calculated (±3σ from data)":
             mean = clean_series.mean()
             std = clean_series.std()
             return (mean - 3 * std), (mean + 3 * std)
+            
+        elif mode == "Calculated (IQR Method)":
+            q1 = clean_series.quantile(0.25)
+            q3 = clean_series.quantile(0.75)
+            iqr = q3 - q1
+            return (q1 - 1.5 * iqr), (q3 + 1.5 * iqr)
             
     return sheet_lcl, sheet_ucl
 
@@ -173,12 +179,16 @@ if len(selected_months) > 0: df = df[df["Time"].dt.month.isin(selected_months)]
 
 st.sidebar.divider()
 
-# --- TÍNH NĂNG VIEW MODE MỚI ---
+# --- TÍNH NĂNG VIEW MODE CẬP NHẬT ---
 limit_mode = st.sidebar.radio(
     "⚙️ Control Limit Mode",
-    ["Standard (Google Sheet)", "Calculated (±3σ from data)"],
+    [
+        "Standard (Google Sheet)", 
+        "Calculated (±3σ from data)",
+        "Calculated (IQR Method)"
+    ],
     key="limit_mode",
-    help="Chọn 'Calculated' để app tự động tính giới hạn LCL/UCL dựa trên ±3 độ lệch chuẩn của dữ liệu đang hiển thị."
+    help="Chọn 'Standard' dùng giới hạn gốc. '±3σ' dùng trung bình dữ liệu. 'IQR' dùng phân vị (khuyên dùng khi có nhiều điểm dị biệt)."
 )
 
 st.sidebar.divider()
@@ -216,6 +226,8 @@ show_limits("LINE")
 
 if limit_mode == "Calculated (±3σ from data)":
     st.sidebar.info("💡 Biểu đồ đang sử dụng giới hạn ±3σ tự động tính toán (Không dùng bảng trên).")
+elif limit_mode == "Calculated (IQR Method)":
+    st.sidebar.success("💡 Biểu đồ đang sử dụng giới hạn IQR để lọc điểm dị biệt (Không dùng bảng trên).")
 
 # =========================
 # OUT-OF-CONTROL DETECTION
@@ -545,10 +557,10 @@ df_plot["Month"] = df_plot[time_col].dt.to_period("M").astype(str)
 st.subheader("⏱ Time Filter")
 col1, col2 = st.columns(2)
 with col1:
-    filter_mode = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
+    filter_mode_bottom = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
 
 with col2:
-    if filter_mode == "Month":
+    if filter_mode_bottom == "Month":
         month_sel = st.multiselect("Select month(s)", sorted(df_plot["Month"].unique()), default=[sorted(df_plot["Month"].unique())[-1]], key="bottom_month_sel")
         df_plot = df_plot[df_plot["Month"].isin(month_sel)]
     else:
