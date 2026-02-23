@@ -103,7 +103,7 @@ df = df[df["year"].isin(selected_years)]
 
 
 # =========================
-# FIX COLUMN NAMES & TYPES (CẬP NHẬT ĐỂ SỬA LỖI)
+# FIX COLUMN NAMES
 # =========================
 df.columns = (
     df.columns
@@ -113,18 +113,6 @@ df.columns = (
     .str.replace(r"\s+", " ", regex=True)
     .str.strip()
 )
-
-# 🛠 ÉP KIỂU SANG SỐ (FLOAT) CHO TẤT CẢ CÁC CỘT GIÁ TRỊ ĐỂ TRÁNH LỖI TYPEERROR
-numeric_columns = [
-    "入料檢測 ΔL 正面", "入料檢測 Δa 正面", "入料檢測 Δb 正面",
-    "正-北 ΔL", "正-南 ΔL", "正-北 Δa", "正-南 Δa", "正-北 Δb", "正-南 Δb",
-    "Avergage Thickness", "Average value ΔE 正面", "Average value ΔL 正面", 
-    "Average value Δa 正面", "Average value Δb 正面"
-]
-for col in numeric_columns:
-    if col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-
 # =========================
 # LIMIT FUNCTION
 # =========================
@@ -299,13 +287,10 @@ def detect_out_of_control(spc_df, lcl, ucl):
     return result[result["Out_of_Control"]]
 
 # =========================
-# PREP SPC DATA (CẬP NHẬT ĐỂ SỬA LỖI)
+# PREP SPC DATA
 # =========================
 def prep_spc(df, north, south):
     tmp = df.copy()
-    # Chắc chắn ép kiểu numeric trước khi mean
-    tmp[north] = pd.to_numeric(tmp[north], errors='coerce')
-    tmp[south] = pd.to_numeric(tmp[south], errors='coerce')
     tmp["value"] = tmp[[north, south]].mean(axis=1)
     return tmp.groupby("製造批號", as_index=False).agg(
         Time=("Time", "min"),
@@ -313,9 +298,7 @@ def prep_spc(df, north, south):
     )
 
 def prep_lab(df, col):
-    tmp = df.copy()
-    tmp[col] = pd.to_numeric(tmp[col], errors='coerce')
-    return tmp.groupby("製造批號", as_index=False).agg(
+    return df.groupby("製造批號", as_index=False).agg(
         Time=("Time", "min"),
         value=(col, "mean")
     )
@@ -789,7 +772,7 @@ for i, k in enumerate(spc):
         std = values.std()
         lcl, ucl = get_limit(color, k, "LAB")
 
-        
+       
         fig, ax = plt.subplots(figsize=(5, 4))
 
         # ===== Histogram =====
@@ -878,6 +861,8 @@ for i, k in enumerate(spc):
         with st.expander("📊 Distribution bin details"):
             st.dataframe(bin_df, use_container_width=True, hide_index=True)
 
+# =========================
+# 🚨 OUT-OF-CONTROL BATCH TABLE
 # =========================
 # 🚨 OUT-OF-CONTROL BATCH TABLE
 # =========================
@@ -1082,8 +1067,8 @@ ax2.grid(True, linestyle="--", alpha=0.4)
 st.pyplot(fig2)
 
 # =========================
-# BỎ QUA IMPORT LẶP LẠI (numpy và math đã import ở trên)
-# =========================
+import numpy as np
+import math
 
 # =========================
 st.subheader("📊 Average Thickness Distribution (Histogram + Normal Curve)")
@@ -1427,3 +1412,85 @@ criteria_table = pd.DataFrame({
 })
 
 st.dataframe(criteria_table, use_container_width=True)
+
+# =========================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
