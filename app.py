@@ -86,21 +86,43 @@ limit_df = load_limit()
 
 # =========================
 
-# ===== CHỌN NĂM =====
-df["date"] = pd.to_datetime(df["Time"])
-df["year"] = df["date"].dt.year
+# =========================
+# SIDEBAR – FILTER
+# =========================
+st.sidebar.title("🎨 Filter")
 
-all_years = sorted(df["year"].unique())
-latest_year = max(all_years)
-
-selected_years = st.sidebar.multiselect(
-    "📅 Select Year(s)",
-    options=all_years,
-    default=[latest_year]
+color = st.sidebar.selectbox(
+    "Color code",
+    sorted(df["塗料編號"].dropna().unique())
 )
 
-df = df[df["year"].isin(selected_years)]
+df = df[df["塗料編號"] == color]
 
+# --- SỬA LOGIC CHỌN NĂM VÀ THÁNG Ở ĐÂY ---
+# Lấy danh sách các năm (ép kiểu int để mất đuôi .0)
+all_years = sorted(df["Time"].dt.year.dropna().astype(int).unique())
+
+selected_years = st.sidebar.multiselect(
+    "Year (Leave empty for ALL years)",
+    options=all_years,
+    default=[]  # Để trống mặc định để hiển thị toàn bộ data
+)
+
+selected_months = st.sidebar.multiselect(
+    "Month (optional)",
+    sorted(df["Time"].dt.month.dropna().astype(int).unique())
+)
+
+# Áp dụng logic: Nếu mảng selected_years CÓ chọn năm thì mới lọc, ngược lại lấy tất cả
+if len(selected_years) > 0:
+    df = df[df["Time"].dt.year.isin(selected_years)]
+
+# Áp dụng lọc tháng nếu có chọn
+if len(selected_months) > 0:
+    df = df[df["Time"].dt.month.isin(selected_months)]
+
+st.sidebar.divider()
+# =========================
 
 # =========================
 # FIX COLUMN NAMES
@@ -1112,3 +1134,4 @@ criteria_table = pd.DataFrame({
     ]
 })
 st.dataframe(criteria_table, use_container_width=True)
+
