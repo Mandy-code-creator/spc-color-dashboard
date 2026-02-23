@@ -163,10 +163,14 @@ def prep_lab(df_data, col):
 # =========================
 # SIDEBAR – NAVIGATION & FILTERS
 # =========================
-st.sidebar.markdown("### 🧭 Navigation")
+st.sidebar.markdown("### 📊 View Mode")
 app_mode = st.sidebar.radio(
-    "Select View",
-    ["Main Dashboard", "Limit Simulator Settings"]
+    "Select View Mode",
+    [
+        "🚀 Main Dashboard", 
+        "🎛️ Control Limit Calculator"
+    ],
+    label_visibility="collapsed"
 )
 
 st.sidebar.divider()
@@ -198,11 +202,10 @@ spc = {
 st.sidebar.divider()
 
 # =========================================================
-# VIEW 1: MAIN DASHBOARD (BẢN GỐC - KHÔNG CHẠM VÀO LOGIC)
+# VIEW 1: MAIN DASHBOARD
 # =========================================================
-if app_mode == "Main Dashboard":
+if app_mode == "🚀 Main Dashboard":
     
-    # 1. Sidebar Elements for Main Dashboard
     if control_batch_code is not None:
         st.sidebar.info(f"🔔 **Control batch**\n\nBatch #{control_batch} → **{control_batch_code}**")
     elif control_batch is not None:
@@ -221,7 +224,6 @@ if app_mode == "Main Dashboard":
     show_limits("LAB")
     show_limits("LINE")
 
-    # 2. Main Dashboard Content
     st.title("室內隔間用途－塗料入料管控專案")
     st.caption("Incoming Paint SPC · LAB / LINE · Phase II Monitoring")
     st.title(f"📊 SPC Color Dashboard — {color}")
@@ -501,41 +503,34 @@ if app_mode == "Main Dashboard":
 # =========================================================
 # VIEW 2: LIMIT SIMULATOR (ĐỘC LẬP HOÀN TOÀN)
 # =========================================================
-elif app_mode == "Limit Simulator Settings":
+elif app_mode == "🎛️ Control Limit Calculator":
     
-    st.title("🛠 Control Limit Calculator & Simulator")
+    st.title("🎛️ Control Limit Calculator & Simulator")
     st.markdown("Independent tool to calculate, compare, and simulate new control limits based on the displayed data.")
     
-    # 1. Sidebar Settings cho chế độ này
-    st.sidebar.markdown("### 🛠 Limit Simulator Settings")
-    st.sidebar.caption("Configure factors for the limit simulator below")
-
-    sigma_input = st.sidebar.text_input(
-        "Sigma Multiplier (σ)", 
-        value="3.0", 
-        key="sim_sigma_val",
-        help="Formula: Mean ± σ * Standard Deviation. Default is 3.0"
-    )
-
-    iqr_input = st.sidebar.text_input(
-        "IQR Multiplier (k)", 
-        value="1.5", 
-        key="sim_iqr_k",
-        help="Formula: Q1 - k * IQR and Q3 + k * IQR. Default is 1.5"
-    )
-
-    try: sim_sigma = float(sigma_input)
-    except ValueError: sim_sigma = 3.0; st.sidebar.error("Invalid input for σ. Using default 3.0")
-
-    try: sim_iqr_k = float(iqr_input)
-    except ValueError: sim_iqr_k = 1.5; st.sidebar.error("Invalid input for k. Using default 1.5")
-
-    # 2. Nội dung Simulator
     calc_col1, calc_col2 = st.columns([1, 2])
 
     with calc_col1:
         calc_factor = st.selectbox("Select Factor", ["ΔL", "Δa", "Δb"], key="calc_factor_sim")
         calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True, key="calc_source_sim")
+        
+        # Đưa các ô cấu hình (Settings) từ Sidebar vào thẳng màn hình chính
+        st.markdown("---")
+        st.markdown("**⚙️ Simulator Settings**")
+        
+        input_col1, input_col2 = st.columns(2)
+        with input_col1:
+            sigma_input = st.text_input("Sigma (σ)", value="3.0", key="sim_sigma_val", help="Mean ± σ * Std")
+        with input_col2:
+            iqr_input = st.text_input("IQR (k)", value="1.5", key="sim_iqr_k", help="Q1 - k*IQR and Q3 + k*IQR")
+
+        try: sim_sigma = float(sigma_input)
+        except ValueError: sim_sigma = 3.0; st.error("Invalid input for σ. Using 3.0")
+
+        try: sim_iqr_k = float(iqr_input)
+        except ValueError: sim_iqr_k = 1.5; st.error("Invalid input for k. Using 1.5")
+        
+        st.markdown("---")
         
         active_data = spc[calc_factor][calc_source.lower()]["value"].dropna()
         active_batch = spc[calc_factor][calc_source.lower()]["製造批號"]
@@ -555,12 +550,12 @@ elif app_mode == "Limit Simulator Settings":
             
             old_lcl, old_ucl = get_limit(color, calc_factor, calc_source)
             
-            st.markdown("### Calculation Results (Comparison)")
-            st.caption(f"**Data Stats:** Mean = {mean_val:.3f}, Std = {std_val:.3f} | Q1 = {q1:.3f}, Q3 = {q3:.3f}, IQR = {iqr_val:.3f}")
+            st.markdown("**Calculation Results (Comparison)**")
+            st.caption(f"Stats: Mean={mean_val:.3f}, Std={std_val:.3f} | Q1={q1:.3f}, Q3={q3:.3f}, IQR={iqr_val:.3f}")
 
             res_df = pd.DataFrame({
                 "Limit Type": [
-                    "Google Sheet (Current)", 
+                    "Google Sheet", 
                     f"Std Dev (±{sim_sigma}σ)", 
                     f"IQR (k={sim_iqr_k})"
                 ],
