@@ -206,6 +206,53 @@ if app_mode in ["🚀 Main Dashboard", "🎛️ Control Limit Calculator"]:
     df = df_color.copy()
     if len(selected_years) > 0: df = df[df["Time"].dt.year.isin(selected_years)]
     if len(selected_months) > 0: df = df[df["Time"].dt.month.isin(selected_months)]
+# =========================
+# 🔎 BATCH SUMMARY (VALIDATION TABLE)
+# =========================
+st.markdown("### 🔎 Batch Level Summary (Validation)")
+
+if not df.empty:
+
+    batch_summary = (
+        df
+        .groupby("製造批號", as_index=False)
+        .agg(
+            Time=("Time", "min"),
+            LAB_ΔL=("入料檢測 ΔL 正面", "mean"),
+            LAB_Δa=("入料檢測 Δa 正面", "mean"),
+            LAB_Δb=("入料檢測 Δb 正面", "mean"),
+            LINE_ΔL_N=("正-北 ΔL", "mean"),
+            LINE_ΔL_S=("正-南 ΔL", "mean"),
+            LINE_Δa_N=("正-北 Δa", "mean"),
+            LINE_Δa_S=("正-南 Δa", "mean"),
+            LINE_Δb_N=("正-北 Δb", "mean"),
+            LINE_Δb_S=("正-南 Δb", "mean"),
+            N_rows=("製造批號", "count")
+        )
+        .sort_values("Time")
+    )
+
+    # Tính LINE mean giống hệt logic prep_spc
+    batch_summary["LINE_ΔL"] = batch_summary[["LINE_ΔL_N", "LINE_ΔL_S"]].mean(axis=1)
+    batch_summary["LINE_Δa"] = batch_summary[["LINE_Δa_N", "LINE_Δa_S"]].mean(axis=1)
+    batch_summary["LINE_Δb"] = batch_summary[["LINE_Δb_N", "LINE_Δb_S"]].mean(axis=1)
+
+    display_cols = [
+        "製造批號",
+        "Time",
+        "LAB_ΔL", "LAB_Δa", "LAB_Δb",
+        "LINE_ΔL", "LINE_Δa", "LINE_Δb",
+        "N_rows"
+    ]
+
+    st.dataframe(
+        batch_summary[display_cols],
+        use_container_width=True,
+        hide_index=True
+    )
+
+else:
+    st.warning("No data available after filtering.")
 
     # Generate SPC data (Shared for both views)
     spc = {
@@ -797,4 +844,5 @@ elif app_mode == "📋 Limit Status Summary":
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
     
     st.info("**Guide:**\n- **Ready for Calc**: Has at least 3 batches in total. Eligible for setting initial limits.\n- **Recommend Recalc**: Analyzes Phase II sequence based on the Alert Settings above. Recalculation is proposed if ANY factor (L, a, b in LAB or LINE) breaches the consecutive or total threshold.")
+
 
