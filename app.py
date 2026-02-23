@@ -507,22 +507,20 @@ if app_mode in ["🚀 Main Dashboard", "🎛️ Control Limit Calculator"]:
 
 
     # =========================================================
-    # VIEW 2: LIMIT SIMULATOR
+    # VIEW 2: LIMIT SIMULATOR (TÍNH TOÁN ĐỒNG THỜI L, a, b & SUY RA ΔE)
     # =========================================================
     elif app_mode == "🎛️ Control Limit Calculator":
         
         st.title("🎛️ Control Limit Calculator & Simulator")
-        st.markdown("Independent tool to calculate, compare, and simulate new control limits based on the displayed data.")
+        st.markdown("Calculate L, a, b limits and derive the **ΔE Control Limit** automatically.")
         
         calc_col1, calc_col2 = st.columns([1, 2])
 
         with calc_col1:
-            calc_factor = st.selectbox("Select Factor", ["ΔL", "Δa", "Δb"], key="calc_factor_sim")
             calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True, key="calc_source_sim")
             
             st.markdown("---")
             st.markdown("**⚙️ Simulator Settings**")
-            
             input_col1, input_col2 = st.columns(2)
             with input_col1:
                 sigma_input = st.text_input("Sigma (σ)", value="3.0", key="sim_sigma_val", help="Mean ± σ * Std")
@@ -530,85 +528,143 @@ if app_mode in ["🚀 Main Dashboard", "🎛️ Control Limit Calculator"]:
                 iqr_input = st.text_input("IQR (k)", value="1.5", key="sim_iqr_k", help="Q1 - k*IQR and Q3 + k*IQR")
 
             try: sim_sigma = float(sigma_input)
-            except ValueError: sim_sigma = 3.0; st.error("Invalid input for σ. Using 3.0")
+            except ValueError: sim_sigma = 3.0; st.error("Invalid input for σ")
 
             try: sim_iqr_k = float(iqr_input)
-            except ValueError: sim_iqr_k = 1.5; st.error("Invalid input for k. Using 1.5")
+            except ValueError: sim_iqr_k = 1.5; st.error("Invalid input for k")
             
             st.markdown("---")
+            plot_choice = st.radio("Calculation Method:", ["Standard Deviation (σ)", "IQR"], horizontal=True)
             
-            active_data = spc[calc_factor][calc_source.lower()]["value"].dropna()
-            active_batch = spc[calc_factor][calc_source.lower()]["製造批號"]
+            # --- XỬ LÝ TÍNH TOÁN TOÀN BỘ L, a, b ---
+            calc_dict = {}
+            dE_max_sq_calc = 0
+            dE_max_sq_old = 0
+            valid_old_dE = True
+            
+            factors = ["ΔL", "Δa", "Δb"]
+            for f in factors:
+                data_f = spc[f][calc_source.lower()]["value"].dropna()
+                batch_f = spc[f][calc_source.lower()]["製造批號"]
+                
+                if len(data_f) >= 3:
+                    mean_val = data_f.mean()
+                    std_val = data_f.std()
+                    q1 = data_f.quantile(0.25)
+                    q3 = data_f.quantile(0.75)
+                    iqr_val = q3 - q1
+                    
+                    old_lcl, old_ucl = get_limit(color, f, calc_source)
+                    
+                    if plot_choice == "Standard Deviation (σ)":
+                        cLCL = mean_val - sim_sigma * std_val
+                        cUCL = mean_val + sim_sigma * std_val
+                        cCenter = mean_val
+                    else:
+                        cLCL = q1 - sim_iqr_k * iqr_val
+                        cUCL = q3 + sim_iqr_k * iqr_val
+                        cCenter = data_f.median()
+                        
+                    calc_dict[f] = {
+                        "data": data_f, "batch": batch_f,
+                        "old_lcl": old_lcl, "old_ucl": old_ucl,
+                        "calc_lcl": cLCL, "calc_ucl": cUCL, "center": cCenter
+                    }
+                    
+                    # Cộng dồn bình phương giới hạn để tìm ra dE Limit
+                    dE_max_sq_calc += max(abs(cLCL), abs(cUCL))**2
+                    
+                    if pd.notnull(old_lcl) and pd.notnull(old_ucl):
+                        dE_max_sq_old += max(abs(old_lcl), abs(old_ucl))**2
+                    else:
+                        valid_old_dE = False
 
-            if len(active_data) >= 3:
-                mean_val = active_data.mean()
-                std_val = active_data.std()
-                sigma_lcl = mean_val - sim_sigma * std_val
-                sigma_ucl = mean_val + sim_sigma * std_val
+            # --- TÍNH TOÁN DERIVED ΔE NẾU ĐỦ L, a, b ---
+            if len(calc_dict) == 3:
+                dE_ucl_calc = math.sqrt(dE_max_sq_calc)
                 
-                q1 = active_data.quantile(0.25)
-                q3 = active_data.quantile(0.75)
-                iqr_val = q3 - q1
-                iqr_lcl = q1 - sim_iqr_k * iqr_val
-                iqr_ucl = q3 + sim_iqr_k * iqr_val
-                median_val = active_data.median()
-                
-                old_lcl, old_ucl = get_limit(color, calc_factor, calc_source)
-                
-                st.markdown("**Calculation Results (Comparison)**")
-                st.caption(f"Stats: Mean={mean_val:.3f}, Std={std_val:.3f} | Q1={q1:.3f}, Q3={q3:.3f}, IQR={iqr_val:.3f}")
+                # Check Sheet xem có sẵn Limit cho dE không
+                sheet_dE_lcl, sheet_dE_ucl = get_limit(color, "ΔE", calc_source)
+                if pd.notnull(sheet_dE_ucl):
+                    dE_ucl_old = sheet_dE_ucl
+                elif valid_old_dE:
+                    dE_ucl_old = math.sqrt(dE_max_sq_old)
+                else:
+                    dE_ucl_old = None
 
-                res_df = pd.DataFrame({
-                    "Limit Type": [
-                        "Current Limits (Sheet)", 
-                        f"Std Dev (±{sim_sigma}σ)", 
-                        f"IQR (k={sim_iqr_k})"
-                    ],
-                    "LCL": [old_lcl, sigma_lcl, iqr_lcl],
-                    "Center": [None, mean_val, median_val],
-                    "UCL": [old_ucl, sigma_ucl, iqr_ucl]
-                })
-                st.dataframe(res_df.style.format({"LCL": "{:.3f}", "Center": "{:.3f}", "UCL": "{:.3f}"}, na_rep="-"), hide_index=True)
+                # Ghép dữ liệu thực tế của L, a, b lại để tạo mảng dữ liệu dE thực tế vẽ biểu đồ
+                df_merged = spc["ΔL"][calc_source.lower()][["製造批號", "value"]].rename(columns={"value": "L"})
+                df_merged = df_merged.merge(spc["Δa"][calc_source.lower()][["製造批號", "value"]].rename(columns={"value": "a"}), on="製造批號")
+                df_merged = df_merged.merge(spc["Δb"][calc_source.lower()][["製造批號", "value"]].rename(columns={"value": "b"}), on="製造批號")
+                df_merged["dE"] = np.sqrt(df_merged["L"]**2 + df_merged["a"]**2 + df_merged["b"]**2)
+
+                calc_dict["Derived ΔE"] = {
+                    "data": df_merged["dE"], "batch": df_merged["製造批號"],
+                    "old_lcl": 0.0, "old_ucl": dE_ucl_old,
+                    "calc_lcl": 0.0, "calc_ucl": dE_ucl_calc, "center": df_merged["dE"].mean()
+                }
+                
+                # --- VẼ BẢNG TỔNG HỢP (TABLE) ---
+                st.markdown("**All Factors Control Limits**")
+                table_rows = []
+                for f in ["ΔL", "Δa", "Δb", "Derived ΔE"]:
+                    table_rows.append({
+                        "Factor": f,
+                        "Sheet LCL": calc_dict[f]["old_lcl"],
+                        "Sheet UCL": calc_dict[f]["old_ucl"],
+                        "Calc LCL": calc_dict[f]["calc_lcl"],
+                        "Calc Center": calc_dict[f]["center"],
+                        "Calc UCL": calc_dict[f]["calc_ucl"]
+                    })
+                res_df = pd.DataFrame(table_rows)
+                st.dataframe(res_df.style.format({"Sheet LCL": "{:.3f}", "Sheet UCL": "{:.3f}", "Calc LCL": "{:.3f}", "Calc Center": "{:.3f}", "Calc UCL": "{:.3f}"}, na_rep="-"), hide_index=True)
                 
                 st.markdown("---")
-                st.markdown("**Visualize on chart:**")
-                col_cb1, col_cb2, col_cb3 = st.columns(3)
-                with col_cb1:
-                    show_sheet = st.checkbox("Current (Sheet)", value=True)
-                with col_cb2:
-                    show_sigma = st.checkbox("Std Dev (σ)", value=True)
-                with col_cb3:
-                    show_iqr = st.checkbox("IQR", value=True)
-
+                calc_factor = st.selectbox("Select Factor to Visualize on Chart:", ["ΔL", "Δa", "Δb", "Derived ΔE"], key="calc_factor_sim")
+                
+                st.markdown("**Visualize toggles:**")
+                col_cb1, col_cb2 = st.columns(2)
+                with col_cb1: show_sheet = st.checkbox("Current (Sheet)", value=True)
+                with col_cb2: show_calc = st.checkbox("Calculated Limit", value=True)
+                
             else:
-                st.warning("Not enough data to calculate.")
+                st.warning("Not enough data to calculate all L, a, b factors.")
 
         with calc_col2:
-            if len(active_data) >= 3:
+            if len(calc_dict) == 4: # Đã tính đủ 3 cái và 1 cái Derived
+                f = calc_factor
+                active_data = calc_dict[f]["data"]
+                active_batch = calc_dict[f]["batch"]
+                
+                oLCL = calc_dict[f]["old_lcl"]
+                oUCL = calc_dict[f]["old_ucl"]
+                cLCL = calc_dict[f]["calc_lcl"]
+                cUCL = calc_dict[f]["calc_ucl"]
+                cCenter = calc_dict[f]["center"]
+                
+                method_name = f"±{sim_sigma}σ" if plot_choice == "Standard Deviation (σ)" else f"IQR (k={sim_iqr_k})"
+                if f == "Derived ΔE": method_name = "Derived from L,a,b limits"
+
                 fig_calc, ax_calc = plt.subplots(figsize=(10, 6))
                 ax_calc.plot(active_batch, active_data, "o-", color="#808080", alpha=0.5, label="Data Point")
                 
-                if show_sheet and old_lcl is not None and not pd.isna(old_lcl):
-                    ax_calc.axhline(old_lcl, color="red", linestyle="--", alpha=0.7, label="Sheet LCL/UCL")
-                    ax_calc.axhline(old_ucl, color="red", linestyle="--", alpha=0.7)
-                    out_sheet = (active_data < old_lcl) | (active_data > old_ucl)
+                if show_sheet and pd.notnull(oLCL) and pd.notnull(oUCL):
+                    ax_calc.axhline(oLCL, color="red", linestyle="--", alpha=0.7, label="Sheet LCL/UCL")
+                    ax_calc.axhline(oUCL, color="red", linestyle="--", alpha=0.7)
+                    out_sheet = (active_data < oLCL) | (active_data > oUCL)
                     ax_calc.scatter(active_batch[out_sheet], active_data[out_sheet], facecolors='none', edgecolors='red', s=150, linewidth=2, zorder=6, label="Sheet OOC")
                     
-                if show_sigma:
-                    ax_calc.axhline(sigma_lcl, color="blue", linewidth=1.5, label=f"±{sim_sigma}σ LCL/UCL")
-                    ax_calc.axhline(sigma_ucl, color="blue", linewidth=1.5)
-                    out_sigma = (active_data < sigma_lcl) | (active_data > sigma_ucl)
-                    ax_calc.scatter(active_batch[out_sigma], active_data[out_sigma], color="blue", marker="x", s=80, zorder=7, label="σ OOC")
+                if show_calc:
+                    ax_calc.axhline(cLCL, color="blue", linewidth=2, label=f"Calc ({method_name})")
+                    ax_calc.axhline(cUCL, color="blue", linewidth=2)
+                    out_calc = (active_data < cLCL) | (active_data > cUCL)
+                    marker_style = "x" if plot_choice == "Standard Deviation (σ)" else "+"
+                    marker_color = "blue" if plot_choice == "Standard Deviation (σ)" else "orange"
+                    ax_calc.scatter(active_batch[out_calc], active_data[out_calc], color=marker_color, marker=marker_style, s=100, zorder=7, label=f"Calc OOC")
 
-                if show_iqr:
-                    ax_calc.axhline(iqr_lcl, color="orange", linestyle="-.", linewidth=2, label=f"IQR LCL/UCL")
-                    ax_calc.axhline(iqr_ucl, color="orange", linestyle="-.", linewidth=2)
-                    out_iqr = (active_data < iqr_lcl) | (active_data > iqr_ucl)
-                    ax_calc.scatter(active_batch[out_iqr], active_data[out_iqr], color="orange", marker="+", s=120, zorder=8, label="IQR OOC")
+                ax_calc.axhline(cCenter, color="green", linestyle=":", alpha=0.5, label="Center Line")
 
-                ax_calc.axhline(mean_val, color="green", linestyle=":", alpha=0.5, label="Mean Line")
-
-                ax_calc.set_title(f"Limits Comparison for {calc_source} - {calc_factor}")
+                ax_calc.set_title(f"Limits Comparison for {calc_source} - {f}")
                 ax_calc.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
                 ax_calc.grid(True, alpha=0.3)
                 ax_calc.tick_params(axis="x", rotation=45)
@@ -618,14 +674,13 @@ if app_mode in ["🚀 Main Dashboard", "🎛️ Control Limit Calculator"]:
 
 
 # =========================================================
-# VIEW 3: LIMIT STATUS SUMMARY (ADVANCED SPC RULES)
+# VIEW 3: LIMIT STATUS SUMMARY
 # =========================================================
 elif app_mode == "📋 Limit Status Summary":
     
     st.title("📋 Limit Status Summary")
     st.markdown("Global overview of all color codes, identifying stable processes and those requiring control limit recalculation based on SPC rules.")
 
-    # Cài đặt ngưỡng cảnh báo OOC
     st.markdown("### ⚙️ Alert Settings")
     col_set1, col_set2 = st.columns(2)
     with col_set1:
@@ -644,13 +699,11 @@ elif app_mode == "📋 Limit Status Summary":
     all_colors = sorted(df_raw["塗料編號"].dropna().unique())
     summary_data = []
 
-    # Hàm tìm số điểm True liên tiếp tối đa trong Pandas Series
     def max_consecutive_true(s):
         if s.empty: return 0
         return (s * (s.groupby((s != s.shift()).cumsum()).cumcount() + 1)).max()
 
     for c in all_colors:
-        # Check current limits in Sheet
         row = limit_df[limit_df["Color_code"] == c]
         if row.empty:
             status = "❌ No"
@@ -661,16 +714,14 @@ elif app_mode == "📋 Limit Status Summary":
             else:
                 status = "✅ Yes"
 
-        # Check total production volume for initial calc
         df_c = df_raw[df_raw["塗料編號"] == c].sort_values("Time")
         total_batches = df_c["製造批號"].nunique()
         can_calc_initial = "✅ Yes" if total_batches >= 3 else "❌ No"
         
-        # Check Phase II data & Consecutive OOCs
         cb = get_control_batch(c)
         cb_code = get_control_batch_code(df_c, cb)
         
-        recalc_status = "❌ Not enough data" # Default
+        recalc_status = "❌ Not enough data"
         
         if cb_code is not None:
             df_p2 = df_c[df_c["製造批號"] >= cb_code]
@@ -700,7 +751,6 @@ elif app_mode == "📋 Limit Status Summary":
                                 if consec > max_consec_any_chart: max_consec_any_chart = consec
                                 if total_ooc > max_total_any_chart: max_total_any_chart = total_ooc
                     
-                    # Đánh giá dựa trên 2 điều kiện
                     if max_consec_any_chart >= consecutive_threshold:
                         recalc_status = f"⚠️ Propose Recalc ({max_consec_any_chart} consec OOCs)"
                     elif max_total_any_chart >= total_ooc_threshold:
@@ -728,7 +778,6 @@ elif app_mode == "📋 Limit Status Summary":
     ready_initial_c = len(summary_df[summary_df["Ready for Calc (Total)"] == "✅ Yes"])
     needs_recalc_c = sum(1 for d in summary_data if "⚠️ Propose Recalc" in d["Recommend Recalc (Phase II)"])
 
-    # High-level Metrics
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Colors", total_c)
     col2.metric("Colors Configured", has_limit_c)
@@ -737,7 +786,6 @@ elif app_mode == "📋 Limit Status Summary":
 
     st.markdown("---")
     st.markdown("### 📊 Comprehensive Status Table")
-    
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
     
     st.info("**Guide:**\n- **Ready for Calc**: Has at least 3 batches in total. Eligible for setting initial limits.\n- **Recommend Recalc**: Analyzes Phase II sequence based on the Alert Settings above. Recalculation is proposed if ANY factor (L, a, b in LAB or LINE) breaches the consecutive or total threshold.")
