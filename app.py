@@ -711,7 +711,7 @@ st.dataframe(pd.DataFrame({"|R| Range": ["≥ 0.70", "0.40 – 0.69", "0.20 – 
 # ==========================================================
 st.markdown("---")
 st.header("🛠 Control Limit Calculator & Simulator")
-st.markdown("Independent tool to calculate and simulate new control limits based on the displayed data.")
+st.markdown("Independent tool to calculate, compare, and simulate new control limits based on the displayed data.")
 
 calc_col1, calc_col2 = st.columns([1, 2])
 
@@ -723,36 +723,43 @@ with calc_col1:
     active_data = spc[calc_factor][calc_source.lower()]["value"].dropna()
     active_batch = spc[calc_factor][calc_source.lower()]["製造批號"]
 
-    calc_results = {"LCL": None, "UCL": None, "Center": None}
-    
     if len(active_data) >= 3:
-        if sim_method == "Standard Deviation (σ)":
-            mean_val = active_data.mean()
-            std_val = active_data.std()
-            calc_results["LCL"] = mean_val - sim_sigma * std_val
-            calc_results["UCL"] = mean_val + sim_sigma * std_val
-            calc_results["Center"] = mean_val
-            st.info(f"**Mean:** {mean_val:.3f} | **Std:** {std_val:.3f} | **Sigma (σ):** {sim_sigma}")
-            method_label = f"±{sim_sigma}σ"
-        else: # IQR
-            q1 = active_data.quantile(0.25)
-            q3 = active_data.quantile(0.75)
-            iqr_val = q3 - q1
-            calc_results["LCL"] = q1 - sim_iqr_k * iqr_val
-            calc_results["UCL"] = q3 + sim_iqr_k * iqr_val
-            calc_results["Center"] = active_data.median()
-            st.info(f"**Q1:** {q1:.3f} | **Q3:** {q3:.3f} | **IQR:** {iqr_val:.3f} | **Multiplier (k):** {sim_iqr_k}")
-            method_label = f"IQR (k={sim_iqr_k})"
-            
+        # Tính toán theo Std Dev (σ)
+        mean_val = active_data.mean()
+        std_val = active_data.std()
+        sigma_lcl = mean_val - sim_sigma * std_val
+        sigma_ucl = mean_val + sim_sigma * std_val
+        
+        # Tính toán theo IQR
+        q1 = active_data.quantile(0.25)
+        q3 = active_data.quantile(0.75)
+        iqr_val = q3 - q1
+        iqr_lcl = q1 - sim_iqr_k * iqr_val
+        iqr_ucl = q3 + sim_iqr_k * iqr_val
+        median_val = active_data.median()
+        
+        # Lấy giới hạn cũ từ Google Sheet
         old_lcl, old_ucl = get_limit(color, calc_factor, calc_source)
         
-        st.markdown("### Calculation Results")
+        st.markdown("### Calculation Results (Comparison)")
+        st.caption(f"**Data Stats:** Mean = {mean_val:.3f}, Std = {std_val:.3f} | Q1 = {q1:.3f}, Q3 = {q3:.3f}, IQR = {iqr_val:.3f}")
+
+        # Bảng so sánh song song
         res_df = pd.DataFrame({
-            "Limit Type": ["Google Sheet (Current)", f"Simulated ({method_label})"],
-            "LCL": [old_lcl, calc_results["LCL"]],
-            "UCL": [old_ucl, calc_results["UCL"]]
+            "Limit Type": [
+                "Google Sheet (Current)", 
+                f"Std Dev (±{sim_sigma}σ)", 
+                f"IQR (k={sim_iqr_k})"
+            ],
+            "LCL": [old_lcl, sigma_lcl, iqr_lcl],
+            "Center": [None, mean_val, median_val],
+            "UCL": [old_ucl, sigma_ucl, iqr_ucl]
         })
-        st.dataframe(res_df.style.format({"LCL": "{:.3f}", "UCL": "{:.3f}"}), hide_index=True)
+        st.dataframe(res_df.style.format({"LCL": "{:.3f}", "Center": "{:.3f}", "UCL": "{:.3f}"}, na_rep="-"), hide_index=True)
+        
+        # Nút chọn để vẽ lên biểu đồ
+        plot_choice = st.radio("Select limits to visualize on chart:", ["Standard Deviation (σ)", "IQR"], horizontal=True)
+
     else:
         st.warning("Not enough data to calculate.")
 
@@ -767,13 +774,20 @@ with calc_col2:
         if old_ucl is not None and not pd.isna(old_ucl):
             ax_calc.axhline(old_ucl, color="red", linestyle="--", alpha=0.5)
             
-        # Vẽ giới hạn tính toán mới (màu xanh dương đậm)
-        ax_calc.axhline(calc_results["LCL"], color="blue", linewidth=2, label="Calculated LCL/UCL")
-        ax_calc.axhline(calc_results["UCL"], color="blue", linewidth=2)
-        ax_calc.axhline(calc_results["Center"], color="green", linestyle=":", label="Center Line")
+        # Vẽ giới hạn tính toán mới (màu xanh dương đậm) dựa vào lựa chọn vẽ biểu đồ
+        if plot_choice == "Standard Deviation (σ)":
+            active_lcl, active_ucl, active_center = sigma_lcl, sigma_ucl, mean_val
+            method_name = f"±{sim_sigma}σ"
+        else:
+            active_lcl, active_ucl, active_center = iqr_lcl, iqr_ucl, median_val
+            method_name = f"IQR (k={sim_iqr_k})"
+
+        ax_calc.axhline(active_lcl, color="blue", linewidth=2, label=f"Calculated ({method_name})")
+        ax_calc.axhline(active_ucl, color="blue", linewidth=2)
+        ax_calc.axhline(active_center, color="green", linestyle=":", label="Center Line")
 
         # Đánh dấu các điểm nằm ngoài giới hạn mới (Out Of Control - OOC)
-        out_new = (active_data < calc_results["LCL"]) | (active_data > calc_results["UCL"])
+        out_new = (active_data < active_lcl) | (active_data > active_ucl)
         ax_calc.scatter(active_batch[out_new], active_data[out_new], color="blue", s=100, zorder=5, label="New OOC")
 
         ax_calc.set_title(f"New Limits Simulation for {calc_source} - {calc_factor}")
@@ -783,4 +797,3 @@ with calc_col2:
         fig_calc.subplots_adjust(right=0.75)
         
         st.pyplot(fig_calc)
-
