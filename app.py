@@ -253,55 +253,135 @@ elif app_mode == "📋 Limit Status Summary":
 # =========================================================
 # VIEW 3: LIMIT SIMULATOR
 # =========================================================
+# VIEW 3: CONTROL LIMIT CALCULATOR (NEW LAYOUT + FUZZY MATCH)
+# =========================================================
 elif app_mode == "🎛️ Control Limit Calculator":
-    st.title("🎛️ Control Limit Calculator & Derived ΔE")
     
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True)
-        sig = float(st.text_input("Sigma (σ)", "3.0"))
-        iqr = float(st.text_input("IQR (k)", "1.5"))
-        method = st.radio("Method:", ["Std Dev (σ)", "IQR"], horizontal=True)
-        
-        calc_res, dE_max_sq, valid_old = {}, 0, True
-        factors = ["ΔL", "Δa", "Δb"]
-        for f in factors:
-            d = spc_data[f][calc_source.lower()]["value"]
-            if len(d) >= 3:
-                m, s = d.mean(), d.std()
-                q1, q3 = d.quantile(0.25), d.quantile(0.75)
-                olcl, oucl = get_limit(color, calc_source, f)
-                
-                clcl, cucl = (m - sig*s, m + sig*s) if method == "Std Dev (σ)" else (q1 - iqr*(q3-q1), q3 + iqr*(q3-q1))
-                cent = m if method == "Std Dev (σ)" else d.median()
-                
-                calc_res[f] = {"data": d, "b": spc_data[f][calc_source.lower()]["製造批號"], "olcl": olcl, "oucl": oucl, "clcl": clcl, "cucl": cucl, "cent": cent}
-                dE_max_sq += max(abs(clcl), abs(cucl))**2
-                if pd.notnull(olcl) and pd.notnull(oucl): valid_old &= True
-                else: valid_old = False
-                
-        if len(calc_res) == 3:
-            st.markdown("**Limits Table**")
-            rows = [{"Factor": f, "Sheet LCL": calc_res[f]["olcl"], "Sheet UCL": calc_res[f]["oucl"], "Calc LCL": calc_res[f]["clcl"], "Calc Center": calc_res[f]["cent"], "Calc UCL": calc_res[f]["cucl"]} for f in factors]
-            rows.append({"Factor": "Derived ΔE", "Sheet LCL": "-", "Sheet UCL": "-", "Calc LCL": 0, "Calc Center": "-", "Calc UCL": math.sqrt(dE_max_sq)})
-            st.dataframe(pd.DataFrame(rows).style.format(precision=3, na_rep="-"), hide_index=True)
+    # ---------------------------------------------------------
+    # HÀM TÌM KIẾM THÔNG MINH (Chống lỗi khoảng trắng / sai tên cột)
+    # ---------------------------------------------------------
+    def safe_get_limit(c_code, src, fac):
+        try:
+            # Dọn sạch khoảng trắng và in hoa mã màu để so sánh tuyệt đối
+            c_search = str(c_code).strip().upper()
+            match_idx = -1
+            if "Color_code" in limit_df.columns:
+                for idx, val in limit_df["Color_code"].items():
+                    if str(val).strip().upper() == c_search:
+                        match_idx = idx
+                        break
+            if match_idx == -1: return None, None
             
-            sel_f = st.selectbox("Visualize:", factors)
-        else:
-            st.warning("Not enough data to calculate limits.")
+            row = limit_df.iloc[[match_idx]]
+            src_up = str(src).strip().upper()
+            fac1 = str(fac).strip().upper()           # Ví dụ: "ΔL"
+            fac2 = fac1.replace("Δ", "DELTA ")        # Ví dụ: "DELTA L" (phòng hờ sheet ghi chữ)
+            
+            lcl, ucl = None, None
+            for col in row.columns:
+                cup = str(col).strip().upper()
+                # Nếu cột chứa chữ LINE/LAB và chứa yếu tố L,a,b
+                if src_up in cup and (fac1 in cup or fac2 in cup):
+                    val = row[col].values[0]
+                    try:
+                        num = float(val)
+                        if not pd.isna(num):
+                            if "LCL" in cup: lcl = num
+                            if "UCL" in cup: ucl = num
+                    except: pass
+            return lcl, ucl
+        except:
+            return None, None
 
-    with c2:
-        if len(calc_res) == 3:
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.plot(calc_res[sel_f]["b"], calc_res[sel_f]["data"], "o-", color="gray", alpha=0.5)
+    st.title("🎛️ Control Limits Analysis & Derived ΔE")
+    
+    # 1. KHUNG CÀI ĐẶT
+    with st.expander("⚙️ 設定參數 (Settings)", expanded=True):
+        st.markdown("**Chọn nguồn dữ liệu & Tùy chỉnh tham số riêng:**")
+        calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True)
+        st.divider()
+        cols = st.columns(3)
+        factors = ["ΔL", "Δa", "Δb"]
+        sig_dict, iqr_dict = {}, {}
+        
+        for i, f in enumerate(factors):
+            with cols[i]:
+                st.markdown(f"🔸 **{f}**")
+                sig_dict[f] = st.number_input(f"Sigma (K)", value=3.0, step=0.1, key=f"sig_{f}")
+                iqr_dict[f] = st.number_input(f"IQR Sens.", value=1.5, step=0.1, key=f"iqr_{f}")
+
+    # 2. TÍNH TOÁN
+    calc_res, dE_max_sq = {}, 0
+    for f in factors:
+        d = spc_data[f][calc_source.lower()]["value"]
+        if len(d) >= 3:
+            m, s = d.mean(), d.std()
+            q1, q3 = d.quantile(0.25), d.quantile(0.75)
             
-            if pd.notnull(calc_res[sel_f]["olcl"]):
-                ax.axhline(calc_res[sel_f]["olcl"], color="red", linestyle="--", label="Sheet Limit")
-                ax.axhline(calc_res[sel_f]["oucl"], color="red", linestyle="--")
+            # Sử dụng hàm dò tìm thông minh
+            olcl, oucl = safe_get_limit(color, calc_source, f)
+            sig, iqr_k = sig_dict[f], iqr_dict[f]
+            
+            std_lcl, std_ucl = m - sig*s, m + sig*s
+            iqr_lcl, iqr_ucl = q1 - iqr_k*(q3-q1), q3 + iqr_k*(q3-q1)
+            
+            calc_res[f] = {
+                "data": d, "batch": spc_data[f][calc_source.lower()]["製造批號"], "m": m, "s": s, "median": d.median(),
+                "sig": sig, "iqr_k": iqr_k, "olcl": olcl, "oucl": oucl, "std_lcl": std_lcl, "std_ucl": std_ucl, "iqr_lcl": iqr_lcl, "iqr_ucl": iqr_ucl
+            }
+            dE_max_sq += max(abs(std_lcl), abs(std_ucl))**2
+
+    # 3. HIỂN THỊ KẾT QUẢ TỪNG YẾU TỐ
+    if len(calc_res) == 3:
+        dE_ucl = math.sqrt(dE_max_sq)
+        
+        # Cảnh báo Target dE
+        if dE_ucl <= 1.0:
+            st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Đạt tiêu chuẩn ≤ 1.0)")
+        else:
+            st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Vượt giới hạn > 1.0)")
+            
+        st.markdown("---")
+
+        for f in factors:
+            st.markdown(f"### 📊 Analysis: **{f}** ({calc_source})")
+            col_chart, col_table = st.columns([2.2, 1])
+            res = calc_res[f]
+            
+            with col_table:
+                # Xử lý hiển thị chữ "None" nếu không có giới hạn
+                olcl_str = f"{res['olcl']:.3f}" if pd.notnull(res['olcl']) else "None"
+                oucl_str = f"{res['oucl']:.3f}" if pd.notnull(res['oucl']) else "None"
                 
-            ax.axhline(calc_res[sel_f]["clcl"], color="blue", linewidth=2, label="Calc Limit")
-            ax.axhline(calc_res[sel_f]["cucl"], color="blue", linewidth=2)
-            ax.axhline(calc_res[sel_f]["cent"], color="green", linestyle=":", label="Center")
-            
-            ax.set_title(f"Simulation: {calc_source} - {sel_f}"); ax.legend(); ax.grid(True); plt.xticks(rotation=45)
-            st.pyplot(fig)
+                df_table = pd.DataFrame([
+                    {"Method": "0. Spec (Sheet)", "Min": olcl_str, "Max": oucl_str, "Center": "-", "Note": "Current Target"},
+                    {"Method": f"1. Standard ({res['sig']}σ)", "Min": f"{res['std_lcl']:.3f}", "Max": f"{res['std_ucl']:.3f}", "Center": f"{res['m']:.3f}", "Note": "Basic Stats"},
+                    {"Method": f"2. IQR (k={res['iqr_k']})", "Min": f"{res['iqr_lcl']:.3f}", "Max": f"{res['iqr_ucl']:.3f}", "Center": f"{res['median']:.3f}", "Note": "Filtered"}
+                ])
+                st.dataframe(df_table, hide_index=True, use_container_width=True)
+                st.info(f"**Stats:** μ={res['m']:.3f} | σ={res['s']:.3f} | n={len(res['data'])}")
+
+            with col_chart:
+                fig, ax = plt.subplots(figsize=(10, 4.5))
+                ax.plot(res["batch"], res["data"], "o-", color="#808080", alpha=0.5, label="Process Data")
+                
+                if pd.notnull(res["olcl"]) and pd.notnull(res["oucl"]):
+                    ax.axhline(res["olcl"], color="black", linestyle="-", linewidth=1.5, label="0. Spec")
+                    ax.axhline(res["oucl"], color="black", linestyle="-", linewidth=1.5)
+                    
+                ax.axhline(res["std_lcl"], color="#d62728", linestyle="--", linewidth=1.5, label=f"1. Std (±{res['sig']}σ)")
+                ax.axhline(res["std_ucl"], color="#d62728", linestyle="--", linewidth=1.5)
+                ax.axhline(res["iqr_lcl"], color="#1f77b4", linestyle=":", linewidth=2, label=f"2. IQR (k={res['iqr_k']})")
+                ax.axhline(res["iqr_ucl"], color="#1f77b4", linestyle=":", linewidth=2)
+                ax.axhline(res["m"], color="#2ca02c", linestyle="-.", alpha=0.5, label="Mean")
+                
+                ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=9)
+                ax.grid(True, alpha=0.3)
+                plt.xticks(rotation=45)
+                fig.subplots_adjust(right=0.75, bottom=0.2)
+                st.pyplot(fig)
+                plt.close(fig)
+                
+            st.markdown("---")
+    else:
+        st.warning("Not enough data (min 3 batches).")
