@@ -231,33 +231,32 @@ show_limits("LINE")
 st.sidebar.divider()
 
 # =========================
-# SIDEBAR: CẤU HÌNH CHO MODULE MÔ PHỎNG LIMIT Ở CUỐI TRANG
+# =========================
+# SIDEBAR: LIMIT SIMULATOR SETTINGS
 # =========================
 st.sidebar.markdown("### 🛠 Limit Simulator Settings")
-st.sidebar.caption("Cấu hình công cụ tính giới hạn kiểm soát mới")
+st.sidebar.caption("Configure settings for the control limit calculator")
 
 sim_method = st.sidebar.radio(
-    "Phương pháp xác định", 
+    "Calculation Method", 
     ["Standard Deviation (σ)", "IQR"], 
     key="sim_method_sb"
 )
 
 if sim_method == "Standard Deviation (σ)":
     sim_k = st.sidebar.number_input(
-        "Nhập hệ số (k) cho σ", 
+        "Input multiplier (k) for σ", 
         min_value=0.1, max_value=10.0, value=3.0, step=0.1, 
         key="sim_sigma_k",
-        help="Công thức: Mean ± k * Standard Deviation"
+        help="Formula: Mean ± k * Standard Deviation"
     )
 else:
     sim_k = st.sidebar.number_input(
-        "Nhập hệ số (k) cho IQR", 
+        "Input multiplier (k) for IQR", 
         min_value=0.1, max_value=10.0, value=1.5, step=0.1, 
         key="sim_iqr_k",
-        help="Công thức: Q1 - k * IQR và Q3 + k * IQR"
+        help="Formula: Q1 - k * IQR and Q3 + k * IQR"
     )
-
-
 # =========================
 # OUT-OF-CONTROL DETECTION
 # =========================
@@ -700,19 +699,20 @@ st.dataframe(pd.DataFrame({"|R| Range": ["≥ 0.70", "0.40 – 0.69", "0.20 – 
 
 
 # ==========================================================
-# 🛠 CHUYÊN TÍNH GIỚI HẠN KIỂM SOÁT (TASK MỚI)
+# ==========================================================
+# 🛠 CONTROL LIMIT CALCULATOR & SIMULATOR
 # ==========================================================
 st.markdown("---")
 st.header("🛠 Control Limit Calculator & Simulator")
-st.markdown("Công cụ độc lập để tính toán và mô phỏng giới hạn kiểm soát mới dựa trên dữ liệu đang hiển thị.")
+st.markdown("Independent tool to calculate and simulate new control limits based on the displayed data.")
 
 calc_col1, calc_col2 = st.columns([1, 2])
 
 with calc_col1:
-    calc_factor = st.selectbox("Chọn Yếu tố (Factor)", ["ΔL", "Δa", "Δb"], key="calc_factor_sim")
-    calc_source = st.radio("Nguồn Dữ liệu", ["LINE", "LAB"], horizontal=True, key="calc_source_sim")
+    calc_factor = st.selectbox("Select Factor", ["ΔL", "Δa", "Δb"], key="calc_factor_sim")
+    calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True, key="calc_source_sim")
     
-    # Trích xuất dữ liệu từ dictionary "spc" đã được tính toán ở phần trên
+    # Trích xuất dữ liệu từ dictionary "spc"
     active_data = spc[calc_factor][calc_source.lower()]["value"].dropna()
     active_batch = spc[calc_factor][calc_source.lower()]["製造批號"]
 
@@ -725,29 +725,29 @@ with calc_col1:
             calc_results["LCL"] = mean_val - sim_k * std_val
             calc_results["UCL"] = mean_val + sim_k * std_val
             calc_results["Center"] = mean_val
-            st.info(f"**Mean:** {mean_val:.3f} | **Std:** {std_val:.3f} | **Hệ số k:** {sim_k}")
+            st.info(f"**Mean:** {mean_val:.3f} | **Std:** {std_val:.3f} | **Multiplier (k):** {sim_k}")
             method_label = f"±{sim_k}σ"
-        else: # Tính theo IQR
+        else: # IQR
             q1 = active_data.quantile(0.25)
             q3 = active_data.quantile(0.75)
             iqr_val = q3 - q1
             calc_results["LCL"] = q1 - sim_k * iqr_val
             calc_results["UCL"] = q3 + sim_k * iqr_val
             calc_results["Center"] = active_data.median()
-            st.info(f"**Q1:** {q1:.3f} | **Q3:** {q3:.3f} | **IQR:** {iqr_val:.3f} | **Hệ số k:** {sim_k}")
+            st.info(f"**Q1:** {q1:.3f} | **Q3:** {q3:.3f} | **IQR:** {iqr_val:.3f} | **Multiplier (k):** {sim_k}")
             method_label = f"IQR (k={sim_k})"
             
         old_lcl, old_ucl = get_limit(color, calc_factor, calc_source)
         
-        st.markdown("### Kết quả tính toán")
+        st.markdown("### Calculation Results")
         res_df = pd.DataFrame({
-            "Loại Giới Hạn": ["Google Sheet (Đang dùng)", f"Mô Phỏng ({method_label})"],
+            "Limit Type": ["Google Sheet (Current)", f"Simulated ({method_label})"],
             "LCL": [old_lcl, calc_results["LCL"]],
             "UCL": [old_ucl, calc_results["UCL"]]
         })
         st.dataframe(res_df.style.format({"LCL": "{:.3f}", "UCL": "{:.3f}"}), hide_index=True)
     else:
-        st.warning("Không đủ dữ liệu để tính toán.")
+        st.warning("Not enough data to calculate.")
 
 with calc_col2:
     if len(active_data) >= 3:
@@ -769,7 +769,7 @@ with calc_col2:
         out_new = (active_data < calc_results["LCL"]) | (active_data > calc_results["UCL"])
         ax_calc.scatter(active_batch[out_new], active_data[out_new], color="blue", s=100, zorder=5, label="New OOC")
 
-        ax_calc.set_title(f"Mô phỏng giới hạn mới cho {calc_source} - {calc_factor}")
+        ax_calc.set_title(f"New Limits Simulation for {calc_source} - {calc_factor}")
         ax_calc.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
         ax_calc.grid(True, alpha=0.3)
         ax_calc.tick_params(axis="x", rotation=45)
