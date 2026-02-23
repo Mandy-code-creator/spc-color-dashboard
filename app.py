@@ -96,7 +96,7 @@ df.columns = (
     .str.strip()
 )
 
-# 🛠 ÉP KIỂU SANG SỐ (FLOAT) ĐỂ XỬ LÝ DỨT ĐIỂM TYPEERROR
+# 🛠 ÉP KIỂU SANG SỐ (FLOAT)
 numeric_columns = [
     "入料檢測 ΔL 正面", "入料檢測 Δa 正面", "入料檢測 Δb 正面",
     "正-北 ΔL", "正-南 ΔL", "正-北 Δa", "正-南 Δa", "正-北 Δb", "正-南 Δb",
@@ -227,6 +227,36 @@ def show_limits(factor):
 
 show_limits("LAB")
 show_limits("LINE")
+
+st.sidebar.divider()
+
+# =========================
+# SIDEBAR: CẤU HÌNH CHO MODULE MÔ PHỎNG LIMIT Ở CUỐI TRANG
+# =========================
+st.sidebar.markdown("### 🛠 Limit Simulator Settings")
+st.sidebar.caption("Cấu hình công cụ tính giới hạn kiểm soát mới")
+
+sim_method = st.sidebar.radio(
+    "Phương pháp xác định", 
+    ["Standard Deviation (σ)", "IQR"], 
+    key="sim_method_sb"
+)
+
+if sim_method == "Standard Deviation (σ)":
+    sim_k = st.sidebar.number_input(
+        "Nhập hệ số (k) cho σ", 
+        min_value=0.1, max_value=10.0, value=3.0, step=0.1, 
+        key="sim_sigma_k",
+        help="Công thức: Mean ± k * Standard Deviation"
+    )
+else:
+    sim_k = st.sidebar.number_input(
+        "Nhập hệ số (k) cho IQR", 
+        min_value=0.1, max_value=10.0, value=1.5, step=0.1, 
+        key="sim_iqr_k",
+        help="Công thức: Q1 - k * IQR và Q3 + k * IQR"
+    )
+
 
 # =========================
 # OUT-OF-CONTROL DETECTION
@@ -550,10 +580,10 @@ df_plot["Month"] = df_plot[time_col].dt.to_period("M").astype(str)
 st.subheader("⏱ Time Filter")
 col1, col2 = st.columns(2)
 with col1:
-    filter_mode = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
+    filter_mode_bottom = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
 
 with col2:
-    if filter_mode == "Month":
+    if filter_mode_bottom == "Month":
         month_sel = st.multiselect("Select month(s)", sorted(df_plot["Month"].unique()), default=[sorted(df_plot["Month"].unique())[-1]], key="bottom_month_sel")
         df_plot = df_plot[df_plot["Month"].isin(month_sel)]
     else:
@@ -679,10 +709,9 @@ st.markdown("Công cụ độc lập để tính toán và mô phỏng giới h�
 calc_col1, calc_col2 = st.columns([1, 2])
 
 with calc_col1:
-    calc_factor = st.selectbox("Chọn Yếu tố", ["ΔL", "Δa", "Δb"], key="calc_factor_sim")
+    calc_factor = st.selectbox("Chọn Yếu tố (Factor)", ["ΔL", "Δa", "Δb"], key="calc_factor_sim")
     calc_source = st.radio("Nguồn Dữ liệu", ["LINE", "LAB"], horizontal=True, key="calc_source_sim")
-    calc_method = st.radio("Phương pháp tính", ["±3σ (Standard Deviation)", "IQR (Interquartile Range)"], key="calc_method_sim")
-
+    
     # Trích xuất dữ liệu từ dictionary "spc" đã được tính toán ở phần trên
     active_data = spc[calc_factor][calc_source.lower()]["value"].dropna()
     active_batch = spc[calc_factor][calc_source.lower()]["製造批號"]
@@ -690,27 +719,29 @@ with calc_col1:
     calc_results = {"LCL": None, "UCL": None, "Center": None}
     
     if len(active_data) >= 3:
-        if "3σ" in calc_method:
+        if sim_method == "Standard Deviation (σ)":
             mean_val = active_data.mean()
             std_val = active_data.std()
-            calc_results["LCL"] = mean_val - 3 * std_val
-            calc_results["UCL"] = mean_val + 3 * std_val
+            calc_results["LCL"] = mean_val - sim_k * std_val
+            calc_results["UCL"] = mean_val + sim_k * std_val
             calc_results["Center"] = mean_val
-            st.info(f"**Mean:** {mean_val:.3f} | **Std:** {std_val:.3f}")
+            st.info(f"**Mean:** {mean_val:.3f} | **Std:** {std_val:.3f} | **Hệ số k:** {sim_k}")
+            method_label = f"±{sim_k}σ"
         else: # Tính theo IQR
             q1 = active_data.quantile(0.25)
             q3 = active_data.quantile(0.75)
             iqr_val = q3 - q1
-            calc_results["LCL"] = q1 - 1.5 * iqr_val
-            calc_results["UCL"] = q3 + 1.5 * iqr_val
+            calc_results["LCL"] = q1 - sim_k * iqr_val
+            calc_results["UCL"] = q3 + sim_k * iqr_val
             calc_results["Center"] = active_data.median()
-            st.info(f"**Q1:** {q1:.3f} | **Q3:** {q3:.3f} | **IQR:** {iqr_val:.3f}")
+            st.info(f"**Q1:** {q1:.3f} | **Q3:** {q3:.3f} | **IQR:** {iqr_val:.3f} | **Hệ số k:** {sim_k}")
+            method_label = f"IQR (k={sim_k})"
             
         old_lcl, old_ucl = get_limit(color, calc_factor, calc_source)
         
         st.markdown("### Kết quả tính toán")
         res_df = pd.DataFrame({
-            "Loại Giới Hạn": ["Google Sheet (Đang dùng)", f"Tính Toán ({'±3σ' if '3σ' in calc_method else 'IQR'})"],
+            "Loại Giới Hạn": ["Google Sheet (Đang dùng)", f"Mô Phỏng ({method_label})"],
             "LCL": [old_lcl, calc_results["LCL"]],
             "UCL": [old_ucl, calc_results["UCL"]]
         })
