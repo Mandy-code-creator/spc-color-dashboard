@@ -85,7 +85,7 @@ df = load_data()
 limit_df = load_limit()
 
 # =========================
-# FIX COLUMN NAMES & TYPES
+# FIX COLUMN NAMES
 # =========================
 df.columns = (
     df.columns
@@ -96,6 +96,7 @@ df.columns = (
     .str.strip()
 )
 
+# 🛠 ÉP KIỂU SANG SỐ (FLOAT) ĐỂ XỬ LÝ DỨT ĐIỂM TYPEERROR
 numeric_columns = [
     "入料檢測 ΔL 正面", "入料檢測 Δa 正面", "入料檢測 Δb 正面",
     "正-北 ΔL", "正-南 ΔL", "正-北 Δa", "正-南 Δa", "正-北 Δb", "正-南 Δb",
@@ -106,8 +107,9 @@ for col in numeric_columns:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors='coerce')
 
+
 # =========================
-# LIMIT FUNCTIONS (CẬP NHẬT PHƯƠNG PHÁP IQR)
+# LIMIT FUNCTION
 # =========================
 def get_limit(color, prefix, factor):
     row = limit_df[limit_df["Color_code"] == color]
@@ -118,78 +120,74 @@ def get_limit(color, prefix, factor):
         row.get(f"{factor} {prefix} UCL", [None]).values[0]
     )
 
-def get_active_limit(color, prefix, factor, mode, series):
-    """Lấy giới hạn cố định hoặc tự động tính toán (±3σ hoặc IQR) dựa trên View Mode"""
-    sheet_lcl, sheet_ucl = get_limit(color, prefix, factor)
-    clean_series = series.dropna()
-    
-    if len(clean_series) >= 2:
-        if mode == "Calculated (±3σ from data)":
-            mean = clean_series.mean()
-            std = clean_series.std()
-            return (mean - 3 * std), (mean + 3 * std)
-            
-        elif mode == "Calculated (IQR Method)":
-            q1 = clean_series.quantile(0.25)
-            q3 = clean_series.quantile(0.75)
-            iqr = q3 - q1
-            return (q1 - 1.5 * iqr), (q3 + 1.5 * iqr)
-            
-    return sheet_lcl, sheet_ucl
-
 # =========================
 # CONTROL BATCH FUNCTION  
-# =========================
 def get_control_batch(color):
     row = limit_df[limit_df["Color_code"] == color]
-    if row.empty: return None
+    if row.empty:
+        return None
     value = row["Control_batch"].values[0]
-    if pd.isna(value): return None
+    if pd.isna(value):
+        return None
     if isinstance(value, str):
         import re
         m = re.search(r"\d+", value)
-        if m: return int(m.group())
-    try: return int(float(value))
-    except: return None
+        if m:
+            return int(m.group())
+    try:
+        return int(float(value))
+    except:
+        return None
 
+# =========================
 def get_control_batch_code(df, control_batch):
-    if control_batch is None or df.empty: return None
-    batch_order = df.sort_values("Time").groupby("製造批號", as_index=False).first().reset_index(drop=True)
+    if control_batch is None or df.empty:
+        return None
+    batch_order = (
+        df.sort_values("Time")
+          .groupby("製造批號", as_index=False)
+          .first()
+          .reset_index(drop=True)
+    )
     if 1 <= control_batch <= len(batch_order):
         return batch_order.loc[control_batch - 1, "製造批號"]
     return None
 
 # =========================
-# SIDEBAR – FILTER & VIEW MODE
+# SIDEBAR – FILTER
 # =========================
-st.sidebar.title("🎨 Filter & View")
+st.sidebar.title("🎨 Filter")
 
-color = st.sidebar.selectbox("Color code", sorted(df["塗料編號"].dropna().unique()), key="sidebar_color")
+color = st.sidebar.selectbox(
+    "Color code",
+    sorted(df["塗料編號"].dropna().unique()),
+    key="sidebar_color"
+)
+
 df = df[df["塗料編號"] == color]
 
 # --- LỌC THỜI GIAN ---
 all_years = sorted(df["Time"].dt.year.dropna().astype(int).unique())
-selected_years = st.sidebar.multiselect("📅 Year (Leave empty for ALL)", options=all_years, default=[], key="sidebar_year")
+selected_years = st.sidebar.multiselect(
+    "📅 Year (Leave empty for ALL)",
+    options=all_years,
+    default=[],
+    key="sidebar_year"
+)
 
 all_months = sorted(df["Time"].dt.month.dropna().astype(int).unique())
-selected_months = st.sidebar.multiselect("📅 Month (optional)", options=all_months, default=[], key="sidebar_month")
-
-if len(selected_years) > 0: df = df[df["Time"].dt.year.isin(selected_years)]
-if len(selected_months) > 0: df = df[df["Time"].dt.month.isin(selected_months)]
-
-st.sidebar.divider()
-
-# --- TÍNH NĂNG VIEW MODE CẬP NHẬT ---
-limit_mode = st.sidebar.radio(
-    "⚙️ Control Limit Mode",
-    [
-        "Standard (Google Sheet)", 
-        "Calculated (±3σ from data)",
-        "Calculated (IQR Method)"
-    ],
-    key="limit_mode",
-    help="Chọn 'Standard' dùng giới hạn gốc. '±3σ' dùng trung bình dữ liệu. 'IQR' dùng phân vị (khuyên dùng khi có nhiều điểm dị biệt)."
+selected_months = st.sidebar.multiselect(
+    "📅 Month (optional)",
+    options=all_months,
+    default=[],
+    key="sidebar_month"
 )
+
+if len(selected_years) > 0:
+    df = df[df["Time"].dt.year.isin(selected_years)]
+
+if len(selected_months) > 0:
+    df = df[df["Time"].dt.month.isin(selected_months)]
 
 st.sidebar.divider()
 
@@ -200,7 +198,12 @@ control_batch = get_control_batch(color)
 control_batch_code = get_control_batch_code(df, control_batch)
 
 if control_batch is not None and not df.empty:
-    batch_order = df.sort_values("Time").groupby("製造批號", as_index=False).first().reset_index(drop=True)
+    batch_order = (
+        df.sort_values("Time")
+          .groupby("製造批號", as_index=False)
+          .first()
+          .reset_index(drop=True)
+    )
     if 1 <= control_batch <= len(batch_order):
         control_batch_code = batch_order.loc[control_batch - 1, "製造批號"]
         st.sidebar.info(f"🔔 **Control batch**\n\nBatch #{control_batch} → **{control_batch_code}**")
@@ -214,20 +217,16 @@ st.sidebar.divider()
 # =========================
 def show_limits(factor):
     row = limit_df[limit_df["Color_code"] == color]
-    if row.empty: return
+    if row.empty:
+        return
     table = row.filter(like=factor).copy()
     for c in table.columns:
         table[c] = table[c].map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
-    st.sidebar.markdown(f"**{factor} Std. Limits (Sheet)**")
+    st.sidebar.markdown(f"**{factor} Control Limits**")
     st.sidebar.dataframe(table, use_container_width=True, hide_index=True)
 
 show_limits("LAB")
 show_limits("LINE")
-
-if limit_mode == "Calculated (±3σ from data)":
-    st.sidebar.info("💡 Biểu đồ đang sử dụng giới hạn ±3σ tự động tính toán (Không dùng bảng trên).")
-elif limit_mode == "Calculated (IQR Method)":
-    st.sidebar.success("💡 Biểu đồ đang sử dụng giới hạn IQR để lọc điểm dị biệt (Không dùng bảng trên).")
 
 # =========================
 # OUT-OF-CONTROL DETECTION
@@ -241,6 +240,7 @@ def detect_out_of_control(spc_df, lcl, ucl):
 
     if lcl is not None and ucl is not None:
         result["Rule_CL"] = ((result["value"] < lcl) | (result["value"] > ucl))
+
     if std > 0:
         result["Rule_3Sigma"] = ((result["value"] > mean + 3 * std) | (result["value"] < mean - 3 * std))
 
@@ -262,6 +262,9 @@ def prep_lab(df, col):
     tmp[col] = pd.to_numeric(tmp[col], errors='coerce')
     return tmp.groupby("製造批號", as_index=False).agg(Time=("Time", "min"), value=(col, "mean"))
 
+# =========================
+# SPC DATA
+# =========================
 spc = {
     "ΔL": {"lab": prep_lab(df, "入料檢測 ΔL 正面"), "line": prep_spc(df, "正-北 ΔL", "正-南 ΔL")},
     "Δa": {"lab": prep_lab(df, "入料檢測 Δa 正面"), "line": prep_spc(df, "正-北 Δa", "正-南 Δa")},
@@ -280,7 +283,10 @@ if not df.empty:
     display_year = "ALL" if len(selected_years) == 0 else ", ".join(map(str, selected_years))
     display_month = "ALL" if len(selected_months) == 0 else ", ".join(map(str, selected_months))
 else:
-    t_min = t_max = "N/A"; n_batch = 0; display_year = "N/A"; display_month = "N/A"
+    t_min = t_max = "N/A"
+    n_batch = 0
+    display_year = "N/A"
+    display_month = "N/A"
 
 st.markdown(f"⏱ **{t_min} → {t_max} | n = {n_batch} batches | Year: {display_year} | Month: {display_month}**")
 
@@ -293,6 +299,7 @@ summary_lab = []
 for k in spc:
     line_values = spc[k]["line"]["value"].dropna()
     if not line_values.empty:
+        lcl, ucl = get_limit(color, k, "LINE")
         summary_line.append({
             "Factor": k, "Min": round(line_values.min(), 2), "Max": round(line_values.max(), 2),
             "Mean": round(line_values.mean(), 2), "Std Dev": round(line_values.std(), 2), "n": line_values.count()
@@ -394,28 +401,14 @@ def download(fig, name):
 
 st.markdown("### 📊 CONTROL CHART: LAB-LINE")
 for k in spc:
-    lab_lim = get_active_limit(color, "LAB", k, limit_mode, spc[k]["lab"]["value"])
-    line_lim = get_active_limit(color, "LINE", k, limit_mode, spc[k]["line"]["value"])
-    
-    fig = spc_combined(spc[k]["lab"], spc[k]["line"], f"COMBINED {k}", lab_lim, line_lim, control_batch_code)
+    fig = spc_combined(spc[k]["lab"], spc[k]["line"], f"COMBINED {k}", get_limit(color, k, "LAB"), get_limit(color, k, "LINE"), control_batch_code)
     st.pyplot(fig)
     download(fig, f"COMBINED_{color}_{k}.png")
 
 st.markdown("---")
 st.subheader("📊 SPC Combined Chart (LAB + LINE) – Phase II")
 for k in ["ΔL", "Δa", "Δb"]:
-    lab_s = spc[k]["lab"]
-    line_s = spc[k]["line"]
-    
-    if control_batch_code is not None:
-        lab2 = lab_s[lab_s["製造批號"] >= control_batch_code]
-        line2 = line_s[line_s["製造批號"] >= control_batch_code]
-        lab_lim = get_active_limit(color, "LAB", k, limit_mode, lab2["value"])
-        line_lim = get_active_limit(color, "LINE", k, limit_mode, line2["value"])
-    else:
-        lab_lim = (None, None); line_lim = (None, None)
-
-    fig = spc_combined_phase2(lab_s, line_s, f"{k} – LAB + LINE (Phase II)", lab_lim, line_lim, control_batch_code)
+    fig = spc_combined_phase2(spc[k]["lab"], spc[k]["line"], f"{k} – LAB + LINE (Phase II)", get_limit(color, k, "LAB"), get_limit(color, k, "LINE"), control_batch_code)
     if fig is not None:
         st.pyplot(fig)
         download(fig, f"COMBINED_PHASE2_{color}_{k}.png")
@@ -439,7 +432,7 @@ for i, k in enumerate(spc):
             st.warning("Not enough data")
             continue
         mean, std = values.mean(), values.std()
-        lcl, ucl = get_active_limit(color, "LINE", k, limit_mode, values)
+        lcl, ucl = get_limit(color, k, "LINE")
 
         fig, ax = plt.subplots(figsize=(5, 4))
         bins = np.histogram_bin_edges(values, bins=10)
@@ -478,7 +471,7 @@ for i, k in enumerate(spc):
             st.warning("Not enough data")
             continue
         mean, std = values.mean(), values.std()
-        lcl, ucl = get_active_limit(color, "LAB", k, limit_mode, values)
+        lcl, ucl = get_limit(color, k, "LAB")
 
         fig, ax = plt.subplots(figsize=(5, 4))
         bins = np.histogram_bin_edges(values, bins=10)
@@ -513,16 +506,16 @@ for i, k in enumerate(spc):
 st.markdown("## 🚨 Out-of-Control Batches")
 ooc_rows = []
 for k in spc:
+    lcl, ucl = get_limit(color, k, "LINE")
     if control_batch_code is not None:
         line_phase2 = spc[k]["line"][spc[k]["line"]["製造批號"] >= control_batch_code]
-        lcl, ucl = get_active_limit(color, "LINE", k, limit_mode, line_phase2["value"])
         ooc_line = detect_out_of_control(line_phase2, lcl, ucl)
         for _, r in ooc_line.iterrows():
             ooc_rows.append({"Factor": k, "Type": "LINE", "製造批號": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
 
+    lcl, ucl = get_limit(color, k, "LAB")
     if control_batch_code is not None:
         lab_phase2 = spc[k]["lab"][spc[k]["lab"]["製造批號"] >= control_batch_code]
-        lcl, ucl = get_active_limit(color, "LAB", k, limit_mode, lab_phase2["value"])
         ooc_lab = detect_out_of_control(lab_phase2, lcl, ucl)
         for _, r in ooc_lab.iterrows():
             ooc_rows.append({"Factor": k, "Type": "LAB", "製造批號": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
@@ -557,10 +550,10 @@ df_plot["Month"] = df_plot[time_col].dt.to_period("M").astype(str)
 st.subheader("⏱ Time Filter")
 col1, col2 = st.columns(2)
 with col1:
-    filter_mode_bottom = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
+    filter_mode = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
 
 with col2:
-    if filter_mode_bottom == "Month":
+    if filter_mode == "Month":
         month_sel = st.multiselect("Select month(s)", sorted(df_plot["Month"].unique()), default=[sorted(df_plot["Month"].unique())[-1]], key="bottom_month_sel")
         df_plot = df_plot[df_plot["Month"].isin(month_sel)]
     else:
@@ -646,9 +639,7 @@ if coil_df.empty:
     st.warning("⚠ No valid coil-level data")
     st.stop()
 
-# Lấy giới hạn từ View Mode cho phần Correlation
-lcl, ucl = get_active_limit(color, "LINE", factor_label, limit_mode, coil_df[factor_col])
-
+lcl, ucl = get_limit(color, factor_label, "LINE")
 ooc_mask = (coil_df[factor_col] < lcl) | (coil_df[factor_col] > ucl) if lcl is not None and ucl is not None else np.zeros(len(coil_df), dtype=bool)
 
 x, y = coil_df["Avergage Thickness"].values, coil_df[factor_col].values
