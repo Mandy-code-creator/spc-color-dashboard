@@ -96,7 +96,7 @@ df.columns = (
     .str.strip()
 )
 
-# 🛠 ÉP KIỂU SANG SỐ (FLOAT) ĐỂ XỬ LÝ DỨT ĐIỂM TYPEERROR
+# 🛠 ÉP KIỂU SANG SỐ (FLOAT)
 numeric_columns = [
     "入料檢測 ΔL 正面", "入料檢測 Δa 正面", "入料檢測 Δb 正面",
     "正-北 ΔL", "正-南 ΔL", "正-北 Δa", "正-南 Δa", "正-北 Δb", "正-南 Δb",
@@ -106,7 +106,6 @@ numeric_columns = [
 for col in numeric_columns:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors='coerce')
-
 
 # =========================
 # LIMIT FUNCTION
@@ -122,6 +121,7 @@ def get_limit(color, prefix, factor):
 
 # =========================
 # CONTROL BATCH FUNCTION  
+# =========================
 def get_control_batch(color):
     row = limit_df[limit_df["Color_code"] == color]
     if row.empty:
@@ -139,7 +139,6 @@ def get_control_batch(color):
     except:
         return None
 
-# =========================
 def get_control_batch_code(df, control_batch):
     if control_batch is None or df.empty:
         return None
@@ -416,6 +415,83 @@ for k in ["ΔL", "Δa", "Δb"]:
         st.info(f"{k}: Not enough Phase II data")
 
 # =========================
+# NEW MODULE: LIMIT CALCULATOR
+# =========================
+st.markdown("---")
+st.header("🛠 Control Limit Calculator & Simulator")
+st.markdown("Công cụ chuyên biệt để tính toán và mô phỏng giới hạn kiểm soát mới dựa trên dữ liệu hiện tại.")
+
+calc_col1, calc_col2 = st.columns([1, 2])
+
+with calc_col1:
+    calc_factor = st.selectbox("Chọn Yếu tố (Factor)", ["ΔL", "Δa", "Δb"], key="calc_factor")
+    calc_source = st.radio("Nguồn Dữ liệu", ["LINE", "LAB"], horizontal=True, key="calc_source")
+    calc_method = st.radio("Phương pháp tính", ["±3σ (Standard Deviation)", "IQR (Interquartile Range)"], key="calc_method")
+
+    # Lấy dữ liệu theo lựa chọn
+    active_data = spc[calc_factor][calc_source.lower()]["value"].dropna()
+    active_batch = spc[calc_factor][calc_source.lower()]["製造批號"]
+
+    calc_results = {"LCL": None, "UCL": None, "Mean/Median": None}
+    
+    if len(active_data) >= 3:
+        if "3σ" in calc_method:
+            mean_val = active_data.mean()
+            std_val = active_data.std()
+            calc_results["LCL"] = mean_val - 3 * std_val
+            calc_results["UCL"] = mean_val + 3 * std_val
+            calc_results["Mean/Median"] = mean_val
+            st.info(f"**Mean:** {mean_val:.3f} | **Std:** {std_val:.3f}")
+        else: # IQR
+            q1 = active_data.quantile(0.25)
+            q3 = active_data.quantile(0.75)
+            iqr_val = q3 - q1
+            calc_results["LCL"] = q1 - 1.5 * iqr_val
+            calc_results["UCL"] = q3 + 1.5 * iqr_val
+            calc_results["Mean/Median"] = active_data.median()
+            st.info(f"**Q1:** {q1:.3f} | **Q3:** {q3:.3f} | **IQR:** {iqr_val:.3f}")
+            
+        old_lcl, old_ucl = get_limit(color, calc_factor, calc_source)
+        
+        st.markdown("### Kết quả tính toán")
+        res_df = pd.DataFrame({
+            "Loại Giới Hạn": ["Google Sheet (Old)", f"Tính Toán ({calc_method})"],
+            "LCL": [old_lcl, calc_results["LCL"]],
+            "UCL": [old_ucl, calc_results["UCL"]]
+        })
+        st.dataframe(res_df.style.format({"LCL": "{:.3f}", "UCL": "{:.3f}"}), hide_index=True)
+    else:
+        st.warning("Không đủ dữ liệu để tính toán.")
+
+with calc_col2:
+    if len(active_data) >= 3:
+        fig_calc, ax_calc = plt.subplots(figsize=(10, 5))
+        ax_calc.plot(active_batch, active_data, "o-", color="#808080", alpha=0.5, label="Data")
+        
+        # Plot Sheet Limits (Old)
+        if old_lcl is not None:
+            ax_calc.axhline(old_lcl, color="red", linestyle="--", alpha=0.5, label="Sheet LCL/UCL")
+            ax_calc.axhline(old_ucl, color="red", linestyle="--", alpha=0.5)
+            
+        # Plot New Calculated Limits
+        ax_calc.axhline(calc_results["LCL"], color="blue", linewidth=2, label="New LCL/UCL")
+        ax_calc.axhline(calc_results["UCL"], color="blue", linewidth=2)
+        ax_calc.axhline(calc_results["Mean/Median"], color="green", linestyle=":", label="Center Line")
+
+        # Highlight OOC based on new limits
+        out_new = (active_data < calc_results["LCL"]) | (active_data > calc_results["UCL"])
+        ax_calc.scatter(active_batch[out_new], active_data[out_new], color="blue", s=100, zorder=5, label="New OOC")
+
+        ax_calc.set_title(f"Mô phỏng giới hạn mới cho {calc_source} - {calc_factor}")
+        ax_calc.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
+        ax_calc.grid(True, alpha=0.3)
+        ax_calc.tick_params(axis="x", rotation=45)
+        fig_calc.subplots_adjust(right=0.75)
+        
+        st.pyplot(fig_calc)
+
+
+# =========================
 # DISTRIBUTION DASHBOARD
 # =========================
 st.markdown("---")
@@ -550,10 +626,10 @@ df_plot["Month"] = df_plot[time_col].dt.to_period("M").astype(str)
 st.subheader("⏱ Time Filter")
 col1, col2 = st.columns(2)
 with col1:
-    filter_mode = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
+    filter_mode_bottom = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
 
 with col2:
-    if filter_mode == "Month":
+    if filter_mode_bottom == "Month":
         month_sel = st.multiselect("Select month(s)", sorted(df_plot["Month"].unique()), default=[sorted(df_plot["Month"].unique())[-1]], key="bottom_month_sel")
         df_plot = df_plot[df_plot["Month"].isin(month_sel)]
     else:
