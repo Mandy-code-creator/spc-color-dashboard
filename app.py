@@ -253,55 +253,121 @@ elif app_mode == "📋 Limit Status Summary":
 # =========================================================
 # VIEW 3: LIMIT SIMULATOR
 # =========================================================
+# VIEW 3: CONTROL LIMIT CALCULATOR (NEW LAYOUT)
+# =========================================================
 elif app_mode == "🎛️ Control Limit Calculator":
-    st.title("🎛️ Control Limit Calculator & Derived ΔE")
+    st.title("🎛️ Control Limits Analysis & Derived ΔE")
     
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True)
-        sig = float(st.text_input("Sigma (σ)", "3.0"))
-        iqr = float(st.text_input("IQR (k)", "1.5"))
-        method = st.radio("Method:", ["Std Dev (σ)", "IQR"], horizontal=True)
-        
-        calc_res, dE_max_sq, valid_old = {}, 0, True
-        factors = ["ΔL", "Δa", "Δb"]
-        for f in factors:
-            d = spc_data[f][calc_source.lower()]["value"]
-            if len(d) >= 3:
-                m, s = d.mean(), d.std()
-                q1, q3 = d.quantile(0.25), d.quantile(0.75)
-                olcl, oucl = get_limit(color, calc_source, f)
-                
-                clcl, cucl = (m - sig*s, m + sig*s) if method == "Std Dev (σ)" else (q1 - iqr*(q3-q1), q3 + iqr*(q3-q1))
-                cent = m if method == "Std Dev (σ)" else d.median()
-                
-                calc_res[f] = {"data": d, "b": spc_data[f][calc_source.lower()]["製造批號"], "olcl": olcl, "oucl": oucl, "clcl": clcl, "cucl": cucl, "cent": cent}
-                dE_max_sq += max(abs(clcl), abs(cucl))**2
-                if pd.notnull(olcl) and pd.notnull(oucl): valid_old &= True
-                else: valid_old = False
-                
-        if len(calc_res) == 3:
-            st.markdown("**Limits Table**")
-            rows = [{"Factor": f, "Sheet LCL": calc_res[f]["olcl"], "Sheet UCL": calc_res[f]["oucl"], "Calc LCL": calc_res[f]["clcl"], "Calc Center": calc_res[f]["cent"], "Calc UCL": calc_res[f]["cucl"]} for f in factors]
-            rows.append({"Factor": "Derived ΔE", "Sheet LCL": "-", "Sheet UCL": "-", "Calc LCL": 0, "Calc Center": "-", "Calc UCL": math.sqrt(dE_max_sq)})
-            st.dataframe(pd.DataFrame(rows).style.format(precision=3, na_rep="-"), hide_index=True)
-            
-            sel_f = st.selectbox("Visualize:", factors)
-        else:
-            st.warning("Not enough data to calculate limits.")
+    # 1. KHUNG CÀI ĐẶT (SETTINGS EXPANDER)
+    with st.expander("⚙️ 設定參數 (Settings)", expanded=True):
+        col_s1, col_s2, col_s3 = st.columns(3)
+        with col_s1:
+            calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True)
+        with col_s2:
+            sig = st.number_input("Sigma Multiplier (K)", value=3.0, step=0.1, help="Used for Standard Deviation limits.")
+        with col_s3:
+            iqr_k = st.number_input("IQR Sensitivity", value=1.5, step=0.1, help="Used for Robust IQR limits.")
 
-    with c2:
-        if len(calc_res) == 3:
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.plot(calc_res[sel_f]["b"], calc_res[sel_f]["data"], "o-", color="gray", alpha=0.5)
+    # 2. XỬ LÝ DỮ LIỆU CẢ 3 YẾU TỐ
+    calc_res = {}
+    dE_max_sq = 0
+    factors = ["ΔL", "Δa", "Δb"]
+    
+    for f in factors:
+        d = spc_data[f][calc_source.lower()]["value"]
+        if len(d) >= 3:
+            m, s = d.mean(), d.std()
+            q1, q3 = d.quantile(0.25), d.quantile(0.75)
+            iqr_val = q3 - q1
             
-            if pd.notnull(calc_res[sel_f]["olcl"]):
-                ax.axhline(calc_res[sel_f]["olcl"], color="red", linestyle="--", label="Sheet Limit")
-                ax.axhline(calc_res[sel_f]["oucl"], color="red", linestyle="--")
+            # Lấy giới hạn cũ từ Sheet
+            olcl, oucl = get_limit(color, calc_source, f)
+            
+            # Tính giới hạn mới
+            std_lcl, std_ucl = m - sig*s, m + sig*s
+            iqr_lcl, iqr_ucl = q1 - iqr_k*iqr_val, q3 + iqr_k*iqr_val
+            
+            calc_res[f] = {
+                "data": d, "batch": spc_data[f][calc_source.lower()]["製造批號"],
+                "m": m, "s": s, "median": d.median(),
+                "olcl": olcl, "oucl": oucl,
+                "std_lcl": std_lcl, "std_ucl": std_ucl,
+                "iqr_lcl": iqr_lcl, "iqr_ucl": iqr_ucl
+            }
+            # Lưu trữ bình phương để tính Derived ΔE (Dựa trên Standard Limit)
+            dE_max_sq += max(abs(std_lcl), abs(std_ucl))**2
+
+    # 3. HIỂN THỊ KẾT QUẢ THEO LAYOUT MỚI
+    if len(calc_res) == 3:
+        # Báo cáo Derived dE ở trên cùng
+        dE_ucl = math.sqrt(dE_max_sq)
+        st.success(f"**🎯 Target Derived ΔE UCL** (Based on Standard ±{sig}σ Limits): **{dE_ucl:.3f}**")
+        st.markdown("---")
+
+        # Lặp qua từng yếu tố L, a, b để vẽ Dashboard nhỏ
+        for f in factors:
+            st.markdown(f"### 📊 Control Limits Analysis: **{f}** ({calc_source})")
+            
+            # Chia cột: Biểu đồ (Trái - 70%), Bảng (Phải - 30%)
+            col_chart, col_table = st.columns([2.2, 1])
+            res = calc_res[f]
+            
+            # --- CỘT PHẢI: BẢNG & CHÚ THÍCH ---
+            with col_table:
+                # Tạo DataFrame cho bảng Method
+                table_data = [
+                    {"Method": "0. Spec (Sheet)", "Min": res["olcl"], "Max": res["oucl"], "Center": "-", "Note": "Current Target"},
+                    {"Method": "1. Standard (σ)", "Min": round(res["std_lcl"], 3), "Max": round(res["std_ucl"], 3), "Center": round(res["m"], 3), "Note": "Basic Stats"},
+                    {"Method": "2. IQR Robust", "Min": round(res["iqr_lcl"], 3), "Max": round(res["iqr_ucl"], 3), "Center": round(res["median"], 3), "Note": "Filtered"}
+                ]
+                df_table = pd.DataFrame(table_data)
                 
-            ax.axhline(calc_res[sel_f]["clcl"], color="blue", linewidth=2, label="Calc Limit")
-            ax.axhline(calc_res[sel_f]["cucl"], color="blue", linewidth=2)
-            ax.axhline(calc_res[sel_f]["cent"], color="green", linestyle=":", label="Center")
+                # Hiển thị bảng
+                st.dataframe(
+                    df_table.style.format({"Min": "{:.3f}", "Max": "{:.3f}", "Center": "{}"}, na_rep="-"), 
+                    hide_index=True, 
+                    use_container_width=True
+                )
+                
+                # Hộp thông tin Guide (Giống Color Guide trong hình)
+                st.info(f"**💡 Basic Stats Guide:**\n\n"
+                        f"• **Mean (μ):** {res['m']:.3f}\n"
+                        f"• **Std Dev (σ):** {res['s']:.3f}\n"
+                        f"• **Valid Batches:** {len(res['data'])}")
+
+            # --- CỘT TRÁI: BIỂU ĐỒ ---
+            with col_chart:
+                fig, ax = plt.subplots(figsize=(10, 4.5))
+                
+                # Line dữ liệu gốc
+                ax.plot(res["batch"], res["data"], "o-", color="#808080", alpha=0.5, label="Process Data")
+                
+                # Vẽ Sheet Limits (Đen)
+                if pd.notnull(res["olcl"]) and pd.notnull(res["oucl"]):
+                    ax.axhline(res["olcl"], color="black", linestyle="-", linewidth=1.5, label="0. Spec (Sheet)")
+                    ax.axhline(res["oucl"], color="black", linestyle="-", linewidth=1.5)
+                    
+                # Vẽ Standard Limits (Đỏ)
+                ax.axhline(res["std_lcl"], color="#d62728", linestyle="--", linewidth=1.5, label=f"1. Std (±{sig}σ)")
+                ax.axhline(res["std_ucl"], color="#d62728", linestyle="--", linewidth=1.5)
+                
+                # Vẽ IQR Limits (Xanh)
+                ax.axhline(res["iqr_lcl"], color="#1f77b4", linestyle=":", linewidth=2, label="2. IQR Robust")
+                ax.axhline(res["iqr_ucl"], color="#1f77b4", linestyle=":", linewidth=2)
+                
+                # Vẽ đường Center (Xanh lá)
+                ax.axhline(res["m"], color="#2ca02c", linestyle="-.", alpha=0.5, label="Mean Center")
+                
+                ax.set_title(f"Limits Comparison ({calc_source}) - {f}")
+                ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=9)
+                ax.grid(True, alpha=0.3)
+                plt.xticks(rotation=45)
+                fig.subplots_adjust(right=0.75, bottom=0.2) # Chừa chỗ cho legend và trục x
+                
+                st.pyplot(fig)
+                plt.close(fig)
+                
+            st.markdown("---") # Đường gạch ngang phân cách giữa các yếu tố
             
-            ax.set_title(f"Simulation: {calc_source} - {sel_f}"); ax.legend(); ax.grid(True); plt.xticks(rotation=45)
-            st.pyplot(fig)
+    else:
+        st.warning("Not enough data (min 3 batches) to calculate limits and present the analysis.")
