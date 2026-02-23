@@ -13,8 +13,6 @@ st.set_page_config(
     page_icon="📊",
     layout="wide"
 )
-st.title("室內隔間用途－塗料入料管控專案")
-st.caption("Incoming Paint SPC · LAB / LINE · Phase II Monitoring")
 
 st.markdown(
     """
@@ -108,178 +106,47 @@ for col in numeric_columns:
 
 
 # =========================
-# LIMIT FUNCTION
+# HELPER FUNCTIONS
 # =========================
 def get_limit(color, prefix, factor):
     row = limit_df[limit_df["Color_code"] == color]
-    if row.empty:
-        return None, None
+    if row.empty: return None, None
     return (
         row.get(f"{factor} {prefix} LCL", [None]).values[0],
         row.get(f"{factor} {prefix} UCL", [None]).values[0]
     )
 
-# =========================
-# CONTROL BATCH FUNCTION  
-# =========================
 def get_control_batch(color):
     row = limit_df[limit_df["Color_code"] == color]
-    if row.empty:
-        return None
+    if row.empty: return None
     value = row["Control_batch"].values[0]
-    if pd.isna(value):
-        return None
+    if pd.isna(value): return None
     if isinstance(value, str):
         import re
         m = re.search(r"\d+", value)
-        if m:
-            return int(m.group())
-    try:
-        return int(float(value))
-    except:
-        return None
+        if m: return int(m.group())
+    try: return int(float(value))
+    except: return None
 
 def get_control_batch_code(df_unfiltered, control_batch):
-    if control_batch is None or df_unfiltered.empty:
-        return None
-    batch_order = (
-        df_unfiltered.sort_values("Time")
-          .groupby("製造批號", as_index=False)
-          .first()
-          .reset_index(drop=True)
-    )
-    if 1 <= control_batch <= len(batch_order):
-        return batch_order.loc[control_batch - 1, "製造批號"]
+    if control_batch is None or df_unfiltered.empty: return None
+    batch_order = df_unfiltered.sort_values("Time").groupby("製造批號", as_index=False).first().reset_index(drop=True)
+    if 1 <= control_batch <= len(batch_order): return batch_order.loc[control_batch - 1, "製造批號"]
     return None
 
-# =========================
-# SIDEBAR – FILTER & LOGIC
-# =========================
-st.sidebar.title("🎨 Filter")
-
-color = st.sidebar.selectbox(
-    "Color code",
-    sorted(df_raw["塗料編號"].dropna().unique()),
-    key="sidebar_color"
-)
-
-# Lấy data theo màu (CHƯA LỌC THỜI GIAN) để tìm Control Batch chính xác
-df_color = df_raw[df_raw["塗料編號"] == color].copy()
-
-# TÌM CONTROL BATCH TRƯỚC KHI LỌC THỜI GIAN
-control_batch = get_control_batch(color)
-control_batch_code = get_control_batch_code(df_color, control_batch)
-
-# --- TIME FILTER ---
-all_years = sorted(df_color["Time"].dt.year.dropna().astype(int).unique())
-selected_years = st.sidebar.multiselect(
-    "📅 Year (Leave empty for ALL)",
-    options=all_years,
-    default=[],
-    key="sidebar_year"
-)
-
-all_months = sorted(df_color["Time"].dt.month.dropna().astype(int).unique())
-selected_months = st.sidebar.multiselect(
-    "📅 Month (optional)",
-    options=all_months,
-    default=[],
-    key="sidebar_month"
-)
-
-# APPLY TIME FILTER
-df = df_color.copy()
-if len(selected_years) > 0:
-    df = df[df["Time"].dt.year.isin(selected_years)]
-
-if len(selected_months) > 0:
-    df = df[df["Time"].dt.month.isin(selected_months)]
-
-st.sidebar.divider()
-
-# =========================
-# SIDEBAR: CONTROL BATCH INFO
-# =========================
-if control_batch_code is not None:
-    st.sidebar.info(f"🔔 **Control batch**\n\nBatch #{control_batch} → **{control_batch_code}**")
-elif control_batch is not None:
-    st.sidebar.warning(f"⚠ Control batch #{control_batch} exceeds available batches")
-
-st.sidebar.divider()
-
-# =========================
-# SIDEBAR: LIMIT DISPLAY
-# =========================
-def show_limits(factor):
-    row = limit_df[limit_df["Color_code"] == color]
-    if row.empty:
-        return
-    table = row.filter(like=factor).copy()
-    for c in table.columns:
-        table[c] = table[c].map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
-    st.sidebar.markdown(f"**{factor} Control Limits (Sheet)**")
-    st.sidebar.dataframe(table, use_container_width=True, hide_index=True)
-
-show_limits("LAB")
-show_limits("LINE")
-
-st.sidebar.divider()
-
-# =========================
-# SIDEBAR: LIMIT SIMULATOR SETTINGS
-# =========================
-st.sidebar.markdown("### 🛠 Limit Simulator Settings")
-st.sidebar.caption("Configure factors for the limit simulator below")
-
-sigma_input = st.sidebar.text_input(
-    "Sigma Multiplier (σ)", 
-    value="3.0", 
-    key="sim_sigma_val",
-    help="Formula: Mean ± σ * Standard Deviation. Default is 3.0"
-)
-
-iqr_input = st.sidebar.text_input(
-    "IQR Multiplier (k)", 
-    value="1.5", 
-    key="sim_iqr_k",
-    help="Formula: Q1 - k * IQR and Q3 + k * IQR. Default is 1.5"
-)
-
-try:
-    sim_sigma = float(sigma_input)
-except ValueError:
-    sim_sigma = 3.0
-    st.sidebar.error("Invalid input for σ. Using default 3.0")
-
-try:
-    sim_iqr_k = float(iqr_input)
-except ValueError:
-    sim_iqr_k = 1.5
-    st.sidebar.error("Invalid input for k. Using default 1.5")
-
-
-# =========================
-# OUT-OF-CONTROL DETECTION
-# =========================
 def detect_out_of_control(spc_df, lcl, ucl):
     mean = spc_df["value"].mean()
     std = spc_df["value"].std()
     result = spc_df.copy()
     result["Rule_CL"] = False
     result["Rule_3Sigma"] = False
-
     if lcl is not None and ucl is not None:
         result["Rule_CL"] = ((result["value"] < lcl) | (result["value"] > ucl))
-
     if std > 0:
         result["Rule_3Sigma"] = ((result["value"] > mean + 3 * std) | (result["value"] < mean - 3 * std))
-
     result["Out_of_Control"] = (result["Rule_CL"] | result["Rule_3Sigma"])
     return result[result["Out_of_Control"]]
 
-# =========================
-# PREP SPC DATA
-# =========================
 def prep_spc(df_data, north, south):
     tmp = df_data.copy()
     tmp[north] = pd.to_numeric(tmp[north], errors='coerce')
@@ -292,488 +159,450 @@ def prep_lab(df_data, col):
     tmp[col] = pd.to_numeric(tmp[col], errors='coerce')
     return tmp.groupby("製造批號", as_index=False).agg(Time=("Time", "min"), value=(col, "mean"))
 
+
+# =========================
+# SIDEBAR – NAVIGATION & FILTERS
+# =========================
+st.sidebar.markdown("### 🧭 Navigation")
+app_mode = st.sidebar.radio(
+    "Select View",
+    ["Main Dashboard", "Limit Simulator Settings"]
+)
+
+st.sidebar.divider()
+st.sidebar.title("🎨 Filter")
+
+color = st.sidebar.selectbox("Color code", sorted(df_raw["塗料編號"].dropna().unique()), key="sidebar_color")
+
+df_color = df_raw[df_raw["塗料編號"] == color].copy()
+control_batch = get_control_batch(color)
+control_batch_code = get_control_batch_code(df_color, control_batch)
+
+all_years = sorted(df_color["Time"].dt.year.dropna().astype(int).unique())
+selected_years = st.sidebar.multiselect("📅 Year (Leave empty for ALL)", options=all_years, default=[], key="sidebar_year")
+
+all_months = sorted(df_color["Time"].dt.month.dropna().astype(int).unique())
+selected_months = st.sidebar.multiselect("📅 Month (optional)", options=all_months, default=[], key="sidebar_month")
+
+df = df_color.copy()
+if len(selected_years) > 0: df = df[df["Time"].dt.year.isin(selected_years)]
+if len(selected_months) > 0: df = df[df["Time"].dt.month.isin(selected_months)]
+
+# Generate SPC data (Shared for both views)
 spc = {
     "ΔL": {"lab": prep_lab(df, "入料檢測 ΔL 正面"), "line": prep_spc(df, "正-北 ΔL", "正-南 ΔL")},
     "Δa": {"lab": prep_lab(df, "入料檢測 Δa 正面"), "line": prep_spc(df, "正-北 Δa", "正-南 Δa")},
     "Δb": {"lab": prep_lab(df, "入料檢測 Δb 正面"), "line": prep_spc(df, "正-北 Δb", "正-南 Δb")}
 }
 
-# =========================
-# MAIN DASHBOARD
-# =========================
-st.title(f"📊 SPC Color Dashboard — {color}")
-
-if not df.empty:
-    t_min = df["Time"].min().strftime("%Y-%m-%d")
-    t_max = df["Time"].max().strftime("%Y-%m-%d")
-    n_batch = df["製造批號"].nunique()
-    display_year = "ALL" if len(selected_years) == 0 else ", ".join(map(str, selected_years))
-    display_month = "ALL" if len(selected_months) == 0 else ", ".join(map(str, selected_months))
-else:
-    t_min = t_max = "N/A"
-    n_batch = 0
-    display_year = "N/A"
-    display_month = "N/A"
-
-st.markdown(f"⏱ **{t_min} → {t_max} | n = {n_batch} batches | Year: {display_year} | Month: {display_month}**")
-
-# ======================================================
-# 📋 SUMMARY TABLE
-# ======================================================
-summary_line = []
-summary_lab = []
-
-for k in spc:
-    line_values = spc[k]["line"]["value"].dropna()
-    if not line_values.empty:
-        lcl, ucl = get_limit(color, k, "LINE")
-        summary_line.append({
-            "Factor": k, "Min": round(line_values.min(), 2), "Max": round(line_values.max(), 2),
-            "Mean": round(line_values.mean(), 2), "Std Dev": round(line_values.std(), 2), "n": line_values.count()
-        })
-
-    lab_values = spc[k]["lab"]["value"].dropna()
-    if not lab_values.empty:
-        summary_lab.append({
-            "Factor": k, "Min": round(lab_values.min(), 2), "Max": round(lab_values.max(), 2),
-            "Mean": round(lab_values.mean(), 2), "Std Dev": round(lab_values.std(), 2), "n": lab_values.count()
-        })
-
-summary_line_df = pd.DataFrame(summary_line)
-summary_lab_df = pd.DataFrame(summary_lab)
-
-st.markdown("### 📋 Summary Statistics")
-col1, col2 = st.columns(2)
-with col1:
-    st.markdown("#### 🏭 LINE")
-    st.dataframe(summary_line_df, use_container_width=True, hide_index=True)
-with col2:
-    st.markdown("#### 🧪 LAB")
-    st.dataframe(summary_lab_df, use_container_width=True, hide_index=True)
-
-# =========================
-# SPC CHARTS
-# =========================
-def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code):
-    fig, ax = plt.subplots(figsize=(12, 4))
-    ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
-    ax.plot(line["製造批號"], line["value"], "o-", label="LINE", color="#2ca02c")
-    
-    if control_batch_code is not None:
-        ax.axvline(x=control_batch_code, color="#b22222", linestyle="--", linewidth=1.5)
-        ax.text(control_batch_code, ax.get_ylim()[1] * 0.97, "Phase II", color="#b22222", fontsize=9, ha="center", va="top")
-
-    if lab_lim[0] is not None and lab_lim[1] is not None:
-        out_lab = (lab["value"] > lab_lim[1]) | (lab["value"] < lab_lim[0])
-        ax.scatter(lab["製造批號"][out_lab], lab["value"][out_lab], color="red", s=80, zorder=5)
-
-    if line_lim[0] is not None and line_lim[1] is not None:
-        out_line = (line["value"] > line_lim[1]) | (line["value"] < line_lim[0])
-        ax.scatter(line["製造批號"][out_line], line["value"][out_line], color="red", s=80, zorder=5)
-    
-    if lab_lim[0] is not None:
-        ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":", label="LAB LCL")
-        ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":", label="LAB UCL")
-
-    if line_lim[0] is not None:
-        ax.axhline(line_lim[0], color="red", label="LINE LCL")
-        ax.axhline(line_lim[1], color="red", label="LINE UCL")
-
-    ax.set_title(title)
-    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
-    ax.grid(True)
-    ax.tick_params(axis="x", rotation=45)
-    fig.subplots_adjust(right=0.78)
-    return fig
-
-def spc_combined_phase2(lab, line, title, lab_lim, line_lim, control_batch_code):
-    if control_batch_code is None: return None
-    lab2 = lab[lab["製造批號"] >= control_batch_code]
-    line2 = line[line["製造批號"] >= control_batch_code]
-    if lab2.empty and line2.empty: return None
-
-    fig, ax = plt.subplots(figsize=(12, 4))
-    if not lab2.empty: ax.plot(lab2["製造批號"], lab2["value"], "o-", label="LAB", color="#1f77b4")
-    if not line2.empty: ax.plot(line2["製造批號"], line2["value"], "o-", label="LINE", color="#2ca02c")
-
-    if not lab2.empty and lab_lim[0] is not None:
-        out = (lab2["value"] < lab_lim[0]) | (lab2["value"] > lab_lim[1])
-        ax.scatter(lab2["製造批號"][out], lab2["value"][out], color="red", s=90, zorder=6)
-
-    if not line2.empty and line_lim[0] is not None:
-        out = (line2["value"] < line_lim[0]) | (line2["value"] > line_lim[1])
-        ax.scatter(line2["製造批號"][out], line2["value"][out], color="red", s=90, zorder=6)
-
-    ax.axvline(x=control_batch_code, color="#b22222", linestyle="--", linewidth=1.5, label="Phase II start")
-
-    if lab_lim[0] is not None:
-        ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":", label="LAB LCL")
-        ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":", label="LAB UCL")
-    if line_lim[0] is not None:
-        ax.axhline(line_lim[0], color="red", label="LINE LCL")
-        ax.axhline(line_lim[1], color="red", label="LINE UCL")
-
-    ax.set_title(title)
-    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
-    ax.grid(True)
-    ax.tick_params(axis="x", rotation=45)
-    fig.subplots_adjust(right=0.78)
-    return fig
-
-def download(fig, name):
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=200, bbox_inches="tight")
-    buf.seek(0)
-    st.download_button("📥 Download PNG", buf, name, "image/png", key=f"dl_{name}")
-
-st.markdown("### 📊 CONTROL CHART: LAB-LINE")
-for k in spc:
-    fig = spc_combined(spc[k]["lab"], spc[k]["line"], f"COMBINED {k}", get_limit(color, k, "LAB"), get_limit(color, k, "LINE"), control_batch_code)
-    st.pyplot(fig)
-    download(fig, f"COMBINED_{color}_{k}.png")
-
-st.markdown("---")
-st.subheader("📊 SPC Combined Chart (LAB + LINE) – Phase II")
-for k in ["ΔL", "Δa", "Δb"]:
-    fig = spc_combined_phase2(spc[k]["lab"], spc[k]["line"], f"{k} – LAB + LINE (Phase II)", get_limit(color, k, "LAB"), get_limit(color, k, "LINE"), control_batch_code)
-    if fig is not None:
-        st.pyplot(fig)
-        download(fig, f"COMBINED_PHASE2_{color}_{k}.png")
-    else:
-        st.info(f"{k}: Not enough Phase II data")
-
-# =========================
-# DISTRIBUTION DASHBOARD
-# =========================
-st.markdown("---")
-st.markdown("## 📈 Line Process Distribution Dashboard")
-
-def normal_pdf(x, mean, std):
-    return (1 / (std * math.sqrt(2 * math.pi))) * np.exp(-0.5 * ((x - mean) / std) ** 2)
-
-cols = st.columns(3)
-for i, k in enumerate(spc):
-    with cols[i]:
-        values = spc[k]["line"]["value"].dropna()
-        if len(values) < 3:
-            st.warning("Not enough data")
-            continue
-        mean, std = values.mean(), values.std()
-        lcl, ucl = get_limit(color, k, "LINE")
-
-        fig, ax = plt.subplots(figsize=(5, 4))
-        bins = np.histogram_bin_edges(values, bins=10)
-        counts, _, patches = ax.hist(values, bins=bins, edgecolor="white", color="#4dabf7", alpha=0.85)
-
-        for p, l, r in zip(patches, bins[:-1], bins[1:]):
-            center = (l + r) / 2
-            if lcl is not None and ucl is not None and (center < lcl or center > ucl):
-                p.set_facecolor("#ff6b6b")
-
-        if std > 0:
-            x = np.linspace(mean - 4 * std, mean + 4 * std, 500)
-            ax.plot(x, normal_pdf(x, mean, std) * len(values) * (bins[1] - bins[0]), color="black", linewidth=2)
-
-        if lcl is not None: ax.axvline(lcl, color="red", linestyle="--", linewidth=1.5, label="LSL")
-        if ucl is not None: ax.axvline(ucl, color="red", linestyle="--", linewidth=1.5, label="USL")
-
-        ax.text(0.02, 0.95, f"N = {len(values)}\nMean = {mean:.3f}\nStd = {std:.3f}", transform=ax.transAxes, va="top", fontsize=9, bbox=dict(facecolor="white", alpha=0.9))
-        ax.set_title(f"{k} (LINE)")
-        ax.grid(axis="y", alpha=0.3)
-        ax.legend(fontsize=8)
-        st.pyplot(fig)
-        
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-        buf.seek(0)
-        st.download_button("⬇ Download", data=buf, file_name=f"{k}_line_dist.png", mime="image/png", key=f"dl_line_dist_{k}")
-
-st.markdown("---")
-st.markdown("## 🧪 LAB Process Distribution Dashboard")
-cols = st.columns(3)
-for i, k in enumerate(spc):
-    with cols[i]:
-        values = spc[k]["lab"]["value"].dropna()
-        if len(values) < 3:
-            st.warning("Not enough data")
-            continue
-        mean, std = values.mean(), values.std()
-        lcl, ucl = get_limit(color, k, "LAB")
-
-        fig, ax = plt.subplots(figsize=(5, 4))
-        bins = np.histogram_bin_edges(values, bins=10)
-        counts, _, patches = ax.hist(values, bins=bins, edgecolor="white", color="#1f77b4", alpha=0.85)
-
-        for p, l, r in zip(patches, bins[:-1], bins[1:]):
-            center = (l + r) / 2
-            if lcl is not None and ucl is not None and (center < lcl or center > ucl):
-                p.set_facecolor("#ff6b6b")
-
-        if std > 0:
-            x = np.linspace(mean - 4 * std, mean + 4 * std, 500)
-            ax.plot(x, normal_pdf(x, mean, std) * len(values) * (bins[1] - bins[0]), color="black", linewidth=2)
-
-        if lcl is not None: ax.axvline(lcl, color="red", linestyle="--", linewidth=1.5, label="LSL")
-        if ucl is not None: ax.axvline(ucl, color="red", linestyle="--", linewidth=1.5, label="USL")
-
-        ax.text(0.02, 0.95, f"N = {len(values)}\nMean = {mean:.3f}\nStd = {std:.3f}", transform=ax.transAxes, va="top", fontsize=9, bbox=dict(facecolor="white", alpha=0.9))
-        ax.set_title(f"{k} (LAB)")
-        ax.grid(axis="y", alpha=0.3)
-        ax.legend(fontsize=8)
-        st.pyplot(fig)
-
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
-        buf.seek(0)
-        st.download_button("⬇ Download", data=buf, file_name=f"{k}_lab_dist.png", mime="image/png", key=f"dl_lab_dist_{k}")
-
-# =========================
-# 🚨 OUT-OF-CONTROL BATCH TABLE
-# =========================
-st.markdown("## 🚨 Out-of-Control Batches")
-ooc_rows = []
-for k in spc:
-    lcl, ucl = get_limit(color, k, "LINE")
-    if control_batch_code is not None:
-        line_phase2 = spc[k]["line"][spc[k]["line"]["製造批號"] >= control_batch_code]
-        ooc_line = detect_out_of_control(line_phase2, lcl, ucl)
-        for _, r in ooc_line.iterrows():
-            ooc_rows.append({"Factor": k, "Type": "LINE", "製造批號": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
-
-    lcl, ucl = get_limit(color, k, "LAB")
-    if control_batch_code is not None:
-        lab_phase2 = spc[k]["lab"][spc[k]["lab"]["製造批號"] >= control_batch_code]
-        ooc_lab = detect_out_of_control(lab_phase2, lcl, ucl)
-        for _, r in ooc_lab.iterrows():
-            ooc_rows.append({"Factor": k, "Type": "LAB", "製造批號": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
-
-if ooc_rows:
-    st.dataframe(pd.DataFrame(ooc_rows), use_container_width=True)
-else:
-    st.success("✅ No out-of-control batches detected")
-
-
-# ==========================================================
-# 🛠 CONTROL LIMIT CALCULATOR & SIMULATOR
-# ==========================================================
-st.markdown("---")
-st.header("🛠 Control Limit Calculator & Simulator")
-st.markdown("Independent tool to calculate, compare, and simulate new control limits based on the displayed data.")
-
-calc_col1, calc_col2 = st.columns([1, 2])
-
-with calc_col1:
-    calc_factor = st.selectbox("Select Factor", ["ΔL", "Δa", "Δb"], key="calc_factor_sim")
-    calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True, key="calc_source_sim")
-    
-    active_data = spc[calc_factor][calc_source.lower()]["value"].dropna()
-    active_batch = spc[calc_factor][calc_source.lower()]["製造批號"]
-
-    if len(active_data) >= 3:
-        # TÍNH TOÁN THEO STD DEV
-        mean_val = active_data.mean()
-        std_val = active_data.std()
-        sigma_lcl = mean_val - sim_sigma * std_val
-        sigma_ucl = mean_val + sim_sigma * std_val
-        
-        # TÍNH TOÁN THEO IQR
-        q1 = active_data.quantile(0.25)
-        q3 = active_data.quantile(0.75)
-        iqr_val = q3 - q1
-        iqr_lcl = q1 - sim_iqr_k * iqr_val
-        iqr_ucl = q3 + sim_iqr_k * iqr_val
-        median_val = active_data.median()
-        
-        old_lcl, old_ucl = get_limit(color, calc_factor, calc_source)
-        
-        st.markdown("### Calculation Results (Comparison)")
-        st.caption(f"**Data Stats:** Mean = {mean_val:.3f}, Std = {std_val:.3f} | Q1 = {q1:.3f}, Q3 = {q3:.3f}, IQR = {iqr_val:.3f}")
-
-        res_df = pd.DataFrame({
-            "Limit Type": [
-                "Google Sheet (Current)", 
-                f"Std Dev (±{sim_sigma}σ)", 
-                f"IQR (k={sim_iqr_k})"
-            ],
-            "LCL": [old_lcl, sigma_lcl, iqr_lcl],
-            "Center": [None, mean_val, median_val],
-            "UCL": [old_ucl, sigma_ucl, iqr_ucl]
-        })
-        st.dataframe(res_df.style.format({"LCL": "{:.3f}", "Center": "{:.3f}", "UCL": "{:.3f}"}, na_rep="-"), hide_index=True)
-        
-        plot_choice = st.radio("Select limits to visualize on chart:", ["Standard Deviation (σ)", "IQR"], horizontal=True)
-
-    else:
-        st.warning("Not enough data to calculate.")
-
-with calc_col2:
-    if len(active_data) >= 3:
-        fig_calc, ax_calc = plt.subplots(figsize=(10, 5))
-        ax_calc.plot(active_batch, active_data, "o-", color="#808080", alpha=0.5, label="Data Point")
-        
-        if old_lcl is not None and not pd.isna(old_lcl):
-            ax_calc.axhline(old_lcl, color="red", linestyle="--", alpha=0.5, label="Sheet LCL/UCL")
-        if old_ucl is not None and not pd.isna(old_ucl):
-            ax_calc.axhline(old_ucl, color="red", linestyle="--", alpha=0.5)
-            
-        if plot_choice == "Standard Deviation (σ)":
-            active_lcl, active_ucl, active_center = sigma_lcl, sigma_ucl, mean_val
-            method_name = f"±{sim_sigma}σ"
-        else:
-            active_lcl, active_ucl, active_center = iqr_lcl, iqr_ucl, median_val
-            method_name = f"IQR (k={sim_iqr_k})"
-
-        ax_calc.axhline(active_lcl, color="blue", linewidth=2, label=f"Calculated ({method_name})")
-        ax_calc.axhline(active_ucl, color="blue", linewidth=2)
-        ax_calc.axhline(active_center, color="green", linestyle=":", label="Center Line")
-
-        out_new = (active_data < active_lcl) | (active_data > active_ucl)
-        ax_calc.scatter(active_batch[out_new], active_data[out_new], color="blue", s=100, zorder=5, label="New OOC")
-
-        ax_calc.set_title(f"New Limits Simulation for {calc_source} - {calc_factor}")
-        ax_calc.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
-        ax_calc.grid(True, alpha=0.3)
-        ax_calc.tick_params(axis="x", rotation=45)
-        fig_calc.subplots_adjust(right=0.75)
-        
-        st.pyplot(fig_calc)
-
+st.sidebar.divider()
 
 # =========================================================
-# 🎨 THICKNESS - COLOR ANALYSIS
+# VIEW 1: MAIN DASHBOARD (BẢN GỐC - KHÔNG CHẠM VÀO LOGIC)
 # =========================================================
-st.markdown("---")
-st.header("🎨 Thickness – Color Analysis (Per Coil)")
+if app_mode == "Main Dashboard":
+    
+    # 1. Sidebar Elements for Main Dashboard
+    if control_batch_code is not None:
+        st.sidebar.info(f"🔔 **Control batch**\n\nBatch #{control_batch} → **{control_batch_code}**")
+    elif control_batch is not None:
+        st.sidebar.warning(f"⚠ Control batch #{control_batch} exceeds available batches")
 
-coil_col, time_col, thickness_col = "Coil No.", "Time", "Avergage Thickness"
-dE_col, dL_col, da_col, db_col = "Average value ΔE 正面", "Average value ΔL 正面", "Average value Δa 正面", "Average value Δb 正面"
+    st.sidebar.divider()
 
-required_cols = [coil_col, time_col, thickness_col, dE_col, dL_col, da_col, db_col]
-missing = [c for c in required_cols if c not in df.columns]
+    def show_limits(factor):
+        row = limit_df[limit_df["Color_code"] == color]
+        if row.empty: return
+        table = row.filter(like=factor).copy()
+        for c in table.columns: table[c] = table[c].map(lambda x: f"{x:.2f}" if pd.notnull(x) else "")
+        st.sidebar.markdown(f"**{factor} Control Limits (Sheet)**")
+        st.sidebar.dataframe(table, use_container_width=True, hide_index=True)
 
-if missing:
-    st.error(f"❌ Missing required columns: {missing}")
-else:
-    df_plot = df.copy()
-    df_plot[time_col] = pd.to_datetime(df_plot[time_col], errors="coerce")
-    df_plot = df_plot.dropna(subset=[time_col])
-    df_plot["Year"] = df_plot[time_col].dt.year
-    df_plot["Month"] = df_plot[time_col].dt.to_period("M").astype(str)
+    show_limits("LAB")
+    show_limits("LINE")
 
-    st.subheader("⏱ Time Filter")
+    # 2. Main Dashboard Content
+    st.title("室內隔間用途－塗料入料管控專案")
+    st.caption("Incoming Paint SPC · LAB / LINE · Phase II Monitoring")
+    st.title(f"📊 SPC Color Dashboard — {color}")
+
+    if not df.empty:
+        t_min = df["Time"].min().strftime("%Y-%m-%d")
+        t_max = df["Time"].max().strftime("%Y-%m-%d")
+        n_batch = df["製造批號"].nunique()
+        display_year = "ALL" if len(selected_years) == 0 else ", ".join(map(str, selected_years))
+        display_month = "ALL" if len(selected_months) == 0 else ", ".join(map(str, selected_months))
+    else:
+        t_min = t_max = "N/A"; n_batch = 0; display_year = "N/A"; display_month = "N/A"
+
+    st.markdown(f"⏱ **{t_min} → {t_max} | n = {n_batch} batches | Year: {display_year} | Month: {display_month}**")
+
+    # Summary Tables
+    summary_line, summary_lab = [], []
+    for k in spc:
+        line_values = spc[k]["line"]["value"].dropna()
+        if not line_values.empty:
+            lcl, ucl = get_limit(color, k, "LINE")
+            summary_line.append({"Factor": k, "Min": round(line_values.min(), 2), "Max": round(line_values.max(), 2), "Mean": round(line_values.mean(), 2), "Std Dev": round(line_values.std(), 2), "n": line_values.count()})
+        lab_values = spc[k]["lab"]["value"].dropna()
+        if not lab_values.empty:
+            summary_lab.append({"Factor": k, "Min": round(lab_values.min(), 2), "Max": round(lab_values.max(), 2), "Mean": round(lab_values.mean(), 2), "Std Dev": round(lab_values.std(), 2), "n": lab_values.count()})
+
+    st.markdown("### 📋 Summary Statistics")
     col1, col2 = st.columns(2)
-    with col1:
-        filter_mode_bottom = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
+    with col1: st.markdown("#### 🏭 LINE"); st.dataframe(pd.DataFrame(summary_line), use_container_width=True, hide_index=True)
+    with col2: st.markdown("#### 🧪 LAB"); st.dataframe(pd.DataFrame(summary_lab), use_container_width=True, hide_index=True)
 
-    with col2:
-        if filter_mode_bottom == "Month":
-            month_sel = st.multiselect("Select month(s)", sorted(df_plot["Month"].unique()), default=[sorted(df_plot["Month"].unique())[-1]], key="bottom_month_sel")
-            df_plot = df_plot[df_plot["Month"].isin(month_sel)]
-        else:
-            year_sel = st.multiselect("Select year(s)", sorted(df_plot["Year"].unique()), default=[df_plot["Year"].max()], key="bottom_year_sel")
-            df_plot = df_plot[df_plot["Year"].isin(year_sel)]
+    # Charts Functions
+    def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code):
+        fig, ax = plt.subplots(figsize=(12, 4))
+        ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
+        ax.plot(line["製造批號"], line["value"], "o-", label="LINE", color="#2ca02c")
+        if control_batch_code is not None:
+            ax.axvline(x=control_batch_code, color="#b22222", linestyle="--", linewidth=1.5)
+            ax.text(control_batch_code, ax.get_ylim()[1] * 0.97, "Phase II", color="#b22222", fontsize=9, ha="center", va="top")
+        if lab_lim[0] is not None and lab_lim[1] is not None:
+            out_lab = (lab["value"] > lab_lim[1]) | (lab["value"] < lab_lim[0])
+            ax.scatter(lab["製造批號"][out_lab], lab["value"][out_lab], color="red", s=80, zorder=5)
+        if line_lim[0] is not None and line_lim[1] is not None:
+            out_line = (line["value"] > line_lim[1]) | (line["value"] < line_lim[0])
+            ax.scatter(line["製造批號"][out_line], line["value"][out_line], color="red", s=80, zorder=5)
+        if lab_lim[0] is not None: ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":", label="LAB LCL"); ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":", label="LAB UCL")
+        if line_lim[0] is not None: ax.axhline(line_lim[0], color="red", label="LINE LCL"); ax.axhline(line_lim[1], color="red", label="LINE UCL")
+        ax.set_title(title); ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left"); ax.grid(True); ax.tick_params(axis="x", rotation=45); fig.subplots_adjust(right=0.78)
+        return fig
 
-    if df_plot.empty:
-        st.warning("⚠️ No data after time filtering")
+    def spc_combined_phase2(lab, line, title, lab_lim, line_lim, control_batch_code):
+        if control_batch_code is None: return None
+        lab2 = lab[lab["製造批號"] >= control_batch_code]; line2 = line[line["製造批號"] >= control_batch_code]
+        if lab2.empty and line2.empty: return None
+        fig, ax = plt.subplots(figsize=(12, 4))
+        if not lab2.empty: ax.plot(lab2["製造批號"], lab2["value"], "o-", label="LAB", color="#1f77b4")
+        if not line2.empty: ax.plot(line2["製造批號"], line2["value"], "o-", label="LINE", color="#2ca02c")
+        if not lab2.empty and lab_lim[0] is not None:
+            out = (lab2["value"] < lab_lim[0]) | (lab2["value"] > lab_lim[1])
+            ax.scatter(lab2["製造批號"][out], lab2["value"][out], color="red", s=90, zorder=6)
+        if not line2.empty and line_lim[0] is not None:
+            out = (line2["value"] < line_lim[0]) | (line2["value"] > line_lim[1])
+            ax.scatter(line2["製造批號"][out], line2["value"][out], color="red", s=90, zorder=6)
+        ax.axvline(x=control_batch_code, color="#b22222", linestyle="--", linewidth=1.5, label="Phase II start")
+        if lab_lim[0] is not None: ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":", label="LAB LCL"); ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":", label="LAB UCL")
+        if line_lim[0] is not None: ax.axhline(line_lim[0], color="red", label="LINE LCL"); ax.axhline(line_lim[1], color="red", label="LINE UCL")
+        ax.set_title(title); ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left"); ax.grid(True); ax.tick_params(axis="x", rotation=45); fig.subplots_adjust(right=0.78)
+        return fig
+
+    def download(fig, name):
+        buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=200, bbox_inches="tight"); buf.seek(0)
+        st.download_button("📥 Download PNG", buf, name, "image/png", key=f"dl_{name}")
+
+    st.markdown("### 📊 CONTROL CHART: LAB-LINE")
+    for k in spc:
+        fig = spc_combined(spc[k]["lab"], spc[k]["line"], f"COMBINED {k}", get_limit(color, k, "LAB"), get_limit(color, k, "LINE"), control_batch_code)
+        st.pyplot(fig); download(fig, f"COMBINED_{color}_{k}.png")
+
+    st.markdown("---")
+    st.subheader("📊 SPC Combined Chart (LAB + LINE) – Phase II")
+    for k in ["ΔL", "Δa", "Δb"]:
+        fig = spc_combined_phase2(spc[k]["lab"], spc[k]["line"], f"{k} – LAB + LINE (Phase II)", get_limit(color, k, "LAB"), get_limit(color, k, "LINE"), control_batch_code)
+        if fig is not None: st.pyplot(fig); download(fig, f"COMBINED_PHASE2_{color}_{k}.png")
+        else: st.info(f"{k}: Not enough Phase II data")
+
+    # Distributions
+    st.markdown("---")
+    st.markdown("## 📈 Line Process Distribution Dashboard")
+    def normal_pdf(x, mean, std): return (1 / (std * math.sqrt(2 * math.pi))) * np.exp(-0.5 * ((x - mean) / std) ** 2)
+    cols = st.columns(3)
+    for i, k in enumerate(spc):
+        with cols[i]:
+            values = spc[k]["line"]["value"].dropna()
+            if len(values) < 3: st.warning("Not enough data"); continue
+            mean, std = values.mean(), values.std(); lcl, ucl = get_limit(color, k, "LINE")
+            fig, ax = plt.subplots(figsize=(5, 4))
+            bins = np.histogram_bin_edges(values, bins=10)
+            counts, _, patches = ax.hist(values, bins=bins, edgecolor="white", color="#4dabf7", alpha=0.85)
+            for p, l, r in zip(patches, bins[:-1], bins[1:]):
+                center = (l + r) / 2
+                if lcl is not None and ucl is not None and (center < lcl or center > ucl): p.set_facecolor("#ff6b6b")
+            if std > 0:
+                x = np.linspace(mean - 4 * std, mean + 4 * std, 500)
+                ax.plot(x, normal_pdf(x, mean, std) * len(values) * (bins[1] - bins[0]), color="black", linewidth=2)
+            if lcl is not None: ax.axvline(lcl, color="red", linestyle="--", linewidth=1.5, label="LSL")
+            if ucl is not None: ax.axvline(ucl, color="red", linestyle="--", linewidth=1.5, label="USL")
+            ax.text(0.02, 0.95, f"N = {len(values)}\nMean = {mean:.3f}\nStd = {std:.3f}", transform=ax.transAxes, va="top", fontsize=9, bbox=dict(facecolor="white", alpha=0.9))
+            ax.set_title(f"{k} (LINE)"); ax.grid(axis="y", alpha=0.3); ax.legend(fontsize=8); st.pyplot(fig)
+            buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=150, bbox_inches="tight"); buf.seek(0)
+            st.download_button("⬇ Download", data=buf, file_name=f"{k}_line_dist.png", mime="image/png", key=f"dl_line_dist_{k}")
+
+    st.markdown("---")
+    st.markdown("## 🧪 LAB Process Distribution Dashboard")
+    cols = st.columns(3)
+    for i, k in enumerate(spc):
+        with cols[i]:
+            values = spc[k]["lab"]["value"].dropna()
+            if len(values) < 3: st.warning("Not enough data"); continue
+            mean, std = values.mean(), values.std(); lcl, ucl = get_limit(color, k, "LAB")
+            fig, ax = plt.subplots(figsize=(5, 4))
+            bins = np.histogram_bin_edges(values, bins=10)
+            counts, _, patches = ax.hist(values, bins=bins, edgecolor="white", color="#1f77b4", alpha=0.85)
+            for p, l, r in zip(patches, bins[:-1], bins[1:]):
+                center = (l + r) / 2
+                if lcl is not None and ucl is not None and (center < lcl or center > ucl): p.set_facecolor("#ff6b6b")
+            if std > 0:
+                x = np.linspace(mean - 4 * std, mean + 4 * std, 500)
+                ax.plot(x, normal_pdf(x, mean, std) * len(values) * (bins[1] - bins[0]), color="black", linewidth=2)
+            if lcl is not None: ax.axvline(lcl, color="red", linestyle="--", linewidth=1.5, label="LSL")
+            if ucl is not None: ax.axvline(ucl, color="red", linestyle="--", linewidth=1.5, label="USL")
+            ax.text(0.02, 0.95, f"N = {len(values)}\nMean = {mean:.3f}\nStd = {std:.3f}", transform=ax.transAxes, va="top", fontsize=9, bbox=dict(facecolor="white", alpha=0.9))
+            ax.set_title(f"{k} (LAB)"); ax.grid(axis="y", alpha=0.3); ax.legend(fontsize=8); st.pyplot(fig)
+            buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=150, bbox_inches="tight"); buf.seek(0)
+            st.download_button("⬇ Download", data=buf, file_name=f"{k}_lab_dist.png", mime="image/png", key=f"dl_lab_dist_{k}")
+
+    # OOC Table
+    st.markdown("## 🚨 Out-of-Control Batches")
+    ooc_rows = []
+    for k in spc:
+        lcl, ucl = get_limit(color, k, "LINE")
+        if control_batch_code is not None:
+            line_phase2 = spc[k]["line"][spc[k]["line"]["製造批號"] >= control_batch_code]
+            ooc_line = detect_out_of_control(line_phase2, lcl, ucl)
+            for _, r in ooc_line.iterrows(): ooc_rows.append({"Factor": k, "Type": "LINE", "製造批號": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
+        lcl, ucl = get_limit(color, k, "LAB")
+        if control_batch_code is not None:
+            lab_phase2 = spc[k]["lab"][spc[k]["lab"]["製造批號"] >= control_batch_code]
+            ooc_lab = detect_out_of_control(lab_phase2, lcl, ucl)
+            for _, r in ooc_lab.iterrows(): ooc_rows.append({"Factor": k, "Type": "LAB", "製造批號": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
+    if ooc_rows: st.dataframe(pd.DataFrame(ooc_rows), use_container_width=True)
+    else: st.success("✅ No out-of-control batches detected")
+
+    # Thickness Analysis
+    st.markdown("---")
+    st.header("🎨 Thickness – Color Analysis (Per Coil)")
+    coil_col, time_col, thickness_col = "Coil No.", "Time", "Avergage Thickness"
+    dE_col, dL_col, da_col, db_col = "Average value ΔE 正面", "Average value ΔL 正面", "Average value Δa 正面", "Average value Δb 正面"
+    required_cols = [coil_col, time_col, thickness_col, dE_col, dL_col, da_col, db_col]
+    missing = [c for c in required_cols if c not in df.columns]
+
+    if missing:
+        st.error(f"❌ Missing required columns: {missing}")
     else:
-        st.subheader("📊 Average Thickness vs ΔE (Each Point = 1 Coil)")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.scatter(df_plot[thickness_col], df_plot[dE_col], alpha=0.75)
-        if len(df_plot) > 0:
-            ax.axhline(df_plot[dE_col].mean(), linestyle="--", linewidth=2, label=f"Mean ΔE = {df_plot[dE_col].mean():.2f}")
-        ax.set_xlabel("Average Thickness"); ax.set_ylabel("ΔE"); ax.set_title("Thickness – Color Relationship per Coil")
-        ax.legend(); ax.grid(True, linestyle="--", alpha=0.4); st.pyplot(fig)
+        df_plot = df.copy()
+        df_plot[time_col] = pd.to_datetime(df_plot[time_col], errors="coerce")
+        df_plot = df_plot.dropna(subset=[time_col])
+        df_plot["Year"] = df_plot[time_col].dt.year
+        df_plot["Month"] = df_plot[time_col].dt.to_period("M").astype(str)
 
-        st.subheader("📈 ΔE Distribution (Per Coil)")
-        fig2, ax2 = plt.subplots(figsize=(10, 4))
-        data_de = df_plot[dE_col].dropna()
-        if len(data_de) > 0:
-            mean_de, std_de = data_de.mean(), data_de.std()
-            ax2.hist(data_de, bins=20, density=True, alpha=0.7, edgecolor="black", label="ΔE Histogram")
-            if std_de > 0:
-                x_de = np.linspace(mean_de - 5*std_de, mean_de + 5*std_de, 1000)
-                ax2.plot(x_de, normal_pdf(x_de, mean_de, std_de), linewidth=3, label="Normal Distribution")
-            ax2.axvline(mean_de, linestyle="--", linewidth=2, label=f"Mean = {mean_de:.2f}")
-            ax2.set_xlabel("ΔE"); ax2.set_ylabel("Density"); ax2.set_title("ΔE Distribution")
-            ax2.legend(); ax2.grid(True, linestyle="--", alpha=0.4); st.pyplot(fig2)
-
-        st.subheader("📊 Average Thickness Distribution")
-        data = df_plot[thickness_col].dropna()
-        if len(data) > 0:
-            mean, std = data.mean(), data.std()
-            col1, col2 = st.columns(2)
-            with col1: LSL = st.number_input("LSL", value=float(mean - 3 * std), key="bottom_lsl")
-            with col2: USL = st.number_input("USL", value=float(mean + 3 * std), key="bottom_usl")
-            
-            if LSL >= USL: 
-                st.error("❌ LSL must be smaller than USL")
+        st.subheader("⏱ Time Filter")
+        col1, col2 = st.columns(2)
+        with col1: filter_mode_bottom = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
+        with col2:
+            if filter_mode_bottom == "Month":
+                month_sel = st.multiselect("Select month(s)", sorted(df_plot["Month"].unique()), default=[sorted(df_plot["Month"].unique())[-1]], key="bottom_month_sel")
+                df_plot = df_plot[df_plot["Month"].isin(month_sel)]
             else:
-                fig, ax = plt.subplots(figsize=(10, 4))
-                ax.hist(data, bins=20, density=True, alpha=0.7, edgecolor="black", label="Thickness")
-                x = np.linspace(mean - 5 * std, mean + 5 * std, 1000)
-                ax.plot(x, normal_pdf(x, mean, std), linewidth=3, label="Normal Distribution")
-                ax.axvline(mean, linestyle="--", linewidth=2, color="red", label=f"Mean = {mean:.2f}")
-                ax.axvline(LSL, linestyle="--", linewidth=2, color="green", label=f"LSL = {LSL:.2f}")
-                ax.axvline(USL, linestyle="--", linewidth=2, color="green", label=f"USL = {USL:.2f}")
-                ax.axvspan(LSL, USL, alpha=0.15, label="Spec Zone")
-                ax.set_xlim(mean - 5 * std, mean + 5 * std)
-                ax.set_xlabel("Average Thickness"); ax.set_ylabel("Density")
-                ax.grid(True, linestyle="--", alpha=0.4); ax.legend(); st.pyplot(fig)
+                year_sel = st.multiselect("Select year(s)", sorted(df_plot["Year"].unique()), default=[df_plot["Year"].max()], key="bottom_year_sel")
+                df_plot = df_plot[df_plot["Year"].isin(year_sel)]
 
-        st.subheader("📋 Coil Summary")
-        st.dataframe(df_plot[[coil_col, thickness_col, dE_col, dL_col, da_col, db_col, time_col]].sort_values(by=dE_col, ascending=False), use_container_width=True)
-
-        # ==========================================================
-        # 🔬 PHASE II – THICKNESS CORRELATION
-        # ==========================================================
-        st.markdown("---")
-        st.header("🔬 PHASE II – THICKNESS CORRELATION (INDEPENDENT MODULE) (Phase II – Per Coil)")
-
-        if control_batch_code is None:
-            st.warning("⚠ Control batch not defined. Phase II cannot be determined.")
+        if df_plot.empty:
+            st.warning("⚠️ No data after time filtering")
         else:
-            df_p2 = df[(df["製造批號"] >= control_batch_code) & (df["塗料編號"] == color)].copy()
-            if df_p2.empty:
-                st.warning("⚠ No Phase II data after filtering")
-            else:
-                COLOR_FACTORS = {"ΔL": ["入料檢測 ΔL 正面", "Average value ΔL 正面"], "Δa": ["入料檢測 Δa 正面", "Average value Δa 正面"], "Δb": ["入料檢測 Δb 正面", "Average value Δb 正面"], "ΔE": ["Average value ΔE 正面"]}
-                available_factors = {k: c for k, cols in COLOR_FACTORS.items() for c in cols if c in df_p2.columns}
+            st.subheader("📊 Average Thickness vs ΔE (Each Point = 1 Coil)")
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.scatter(df_plot[thickness_col], df_plot[dE_col], alpha=0.75)
+            if len(df_plot) > 0: ax.axhline(df_plot[dE_col].mean(), linestyle="--", linewidth=2, label=f"Mean ΔE = {df_plot[dE_col].mean():.2f}")
+            ax.set_xlabel("Average Thickness"); ax.set_ylabel("ΔE"); ax.set_title("Thickness – Color Relationship per Coil")
+            ax.legend(); ax.grid(True, linestyle="--", alpha=0.4); st.pyplot(fig)
 
-                if not available_factors:
-                    st.warning("⚠ No color factor columns found")
+            st.subheader("📈 ΔE Distribution (Per Coil)")
+            fig2, ax2 = plt.subplots(figsize=(10, 4))
+            data_de = df_plot[dE_col].dropna()
+            if len(data_de) > 0:
+                mean_de, std_de = data_de.mean(), data_de.std()
+                ax2.hist(data_de, bins=20, density=True, alpha=0.7, edgecolor="black", label="ΔE Histogram")
+                if std_de > 0:
+                    x_de = np.linspace(mean_de - 5*std_de, mean_de + 5*std_de, 1000)
+                    ax2.plot(x_de, normal_pdf(x_de, mean_de, std_de), linewidth=3, label="Normal Distribution")
+                ax2.axvline(mean_de, linestyle="--", linewidth=2, label=f"Mean = {mean_de:.2f}")
+                ax2.set_xlabel("ΔE"); ax2.set_ylabel("Density"); ax2.set_title("ΔE Distribution")
+                ax2.legend(); ax2.grid(True, linestyle="--", alpha=0.4); st.pyplot(fig2)
+
+            st.subheader("📊 Average Thickness Distribution")
+            data = df_plot[thickness_col].dropna()
+            if len(data) > 0:
+                mean, std = data.mean(), data.std()
+                col1, col2 = st.columns(2)
+                with col1: LSL = st.number_input("LSL", value=float(mean - 3 * std), key="bottom_lsl")
+                with col2: USL = st.number_input("USL", value=float(mean + 3 * std), key="bottom_usl")
+                
+                if LSL >= USL: 
+                    st.error("❌ LSL must be smaller than USL")
                 else:
-                    factor_label = st.selectbox("🎯 Select Color Factor", list(available_factors.keys()), index=0, key="bottom_color_factor")
-                    factor_col = available_factors[factor_label]
+                    fig, ax = plt.subplots(figsize=(10, 4))
+                    ax.hist(data, bins=20, density=True, alpha=0.7, edgecolor="black", label="Thickness")
+                    x = np.linspace(mean - 5 * std, mean + 5 * std, 1000)
+                    ax.plot(x, normal_pdf(x, mean, std), linewidth=3, label="Normal Distribution")
+                    ax.axvline(mean, linestyle="--", linewidth=2, color="red", label=f"Mean = {mean:.2f}")
+                    ax.axvline(LSL, linestyle="--", linewidth=2, color="green", label=f"LSL = {LSL:.2f}")
+                    ax.axvline(USL, linestyle="--", linewidth=2, color="green", label=f"USL = {USL:.2f}")
+                    ax.axvspan(LSL, USL, alpha=0.15, label="Spec Zone")
+                    ax.set_xlim(mean - 5 * std, mean + 5 * std)
+                    ax.set_xlabel("Average Thickness"); ax.set_ylabel("Density")
+                    ax.grid(True, linestyle="--", alpha=0.4); ax.legend(); st.pyplot(fig)
 
-                    coil_df = df_p2.groupby("Coil No.", as_index=False).agg({"Avergage Thickness": "mean", factor_col: "mean", "製造批號": "min"}).dropna()
-                    if coil_df.empty:
-                        st.warning("⚠ No valid coil-level data")
+            with st.expander("📋 Coil Summary"):
+                st.dataframe(df_plot[[coil_col, thickness_col, dE_col, dL_col, da_col, db_col, time_col]].sort_values(by=dE_col, ascending=False), use_container_width=True)
+
+            st.markdown("---")
+            st.header("🔬 PHASE II – THICKNESS CORRELATION (INDEPENDENT MODULE) (Phase II – Per Coil)")
+            if control_batch_code is None:
+                st.warning("⚠ Control batch not defined. Phase II cannot be determined.")
+            else:
+                df_p2 = df[(df["製造批號"] >= control_batch_code) & (df["塗料編號"] == color)].copy()
+                if df_p2.empty:
+                    st.warning("⚠ No Phase II data after filtering")
+                else:
+                    COLOR_FACTORS = {"ΔL": ["入料檢測 ΔL 正面", "Average value ΔL 正面"], "Δa": ["入料檢測 Δa 正面", "Average value Δa 正面"], "Δb": ["入料檢測 Δb 正面", "Average value Δb 正面"], "ΔE": ["Average value ΔE 正面"]}
+                    available_factors = {k: c for k, cols in COLOR_FACTORS.items() for c in cols if c in df_p2.columns}
+                    if not available_factors:
+                        st.warning("⚠ No color factor columns found")
                     else:
-                        lcl, ucl = get_limit(color, factor_label, "LINE")
-                        ooc_mask = (coil_df[factor_col] < lcl) | (coil_df[factor_col] > ucl) if lcl is not None and ucl is not None else np.zeros(len(coil_df), dtype=bool)
+                        factor_label = st.selectbox("🎯 Select Color Factor", list(available_factors.keys()), index=0, key="bottom_color_factor")
+                        factor_col = available_factors[factor_label]
+                        coil_df = df_p2.groupby("Coil No.", as_index=False).agg({"Avergage Thickness": "mean", factor_col: "mean", "製造批號": "min"}).dropna()
+                        if coil_df.empty:
+                            st.warning("⚠ No valid coil-level data")
+                        else:
+                            lcl, ucl = get_limit(color, factor_label, "LINE")
+                            ooc_mask = (coil_df[factor_col] < lcl) | (coil_df[factor_col] > ucl) if lcl is not None and ucl is not None else np.zeros(len(coil_df), dtype=bool)
+                            x, y = coil_df["Avergage Thickness"].values, coil_df[factor_col].values
+                            r2 = None
+                            if len(x) >= 2:
+                                slope, intercept = np.polyfit(x, y, 1)
+                                r2 = 1 - np.sum((y - (slope * x + intercept)) ** 2) / np.sum((y - np.mean(y)) ** 2) if np.sum((y - np.mean(y)) ** 2) != 0 else 0
+                            fig, ax = plt.subplots(figsize=(9, 6))
+                            ax.scatter(coil_df[~ooc_mask]["Avergage Thickness"], coil_df[~ooc_mask][factor_col], alpha=0.7, label="Normal Coil")
+                            if ooc_mask.any(): ax.scatter(coil_df[ooc_mask]["Avergage Thickness"], coil_df[ooc_mask][factor_col], color="red", s=80, label="OOC Coil")
+                            if r2 is not None: ax.plot(np.linspace(x.min(), x.max(), 100), slope * np.linspace(x.min(), x.max(), 100) + intercept, linestyle="--", linewidth=2, label=f"Regression line (R² = {r2:.3f})")
+                            ax.set_title(f"Phase II – Per Coil Analysis\nThickness vs {factor_label}" + (f" | r = {coil_df['Avergage Thickness'].corr(coil_df[factor_col]):.3f}, R² = {r2:.3f}" if r2 is not None else ""))
+                            ax.set_xlabel("Average Thickness (per Coil)"); ax.set_ylabel(factor_label); ax.legend(); ax.grid(True, linestyle="--", alpha=0.4); st.pyplot(fig)
 
-                        x, y = coil_df["Avergage Thickness"].values, coil_df[factor_col].values
-                        r2 = None
-                        if len(x) >= 2:
-                            slope, intercept = np.polyfit(x, y, 1)
-                            r2 = 1 - np.sum((y - (slope * x + intercept)) ** 2) / np.sum((y - np.mean(y)) ** 2) if np.sum((y - np.mean(y)) ** 2) != 0 else 0
+                            st.markdown("### 🧠 Interpretation")
+                            if r2 is not None:
+                                if r2 >= 0.6: st.error("🔴 Thickness strongly explains color variation (High R²)")
+                                elif r2 >= 0.3: st.warning("🟠 Thickness may contribute to color drift (Moderate R²)")
+                                else: st.success("🟢 Thickness unlikely main driver (Low R²)")
+                            else: st.info("ℹ Not enough data for regression analysis")
 
-                        fig, ax = plt.subplots(figsize=(9, 6))
-                        ax.scatter(coil_df[~ooc_mask]["Avergage Thickness"], coil_df[~ooc_mask][factor_col], alpha=0.7, label="Normal Coil")
-                        if ooc_mask.any(): ax.scatter(coil_df[ooc_mask]["Avergage Thickness"], coil_df[ooc_mask][factor_col], color="red", s=80, label="OOC Coil")
-                        if r2 is not None: ax.plot(np.linspace(x.min(), x.max(), 100), slope * np.linspace(x.min(), x.max(), 100) + intercept, linestyle="--", linewidth=2, label=f"Regression line (R² = {r2:.3f})")
+                            with st.expander("📋 Phase II – Coil level data"): st.dataframe(coil_df.sort_values("製造批號"), use_container_width=True)
 
-                        ax.set_title(f"Phase II – Per Coil Analysis\nThickness vs {factor_label}" + (f" | r = {coil_df['Avergage Thickness'].corr(coil_df[factor_col]):.3f}, R² = {r2:.3f}" if r2 is not None else ""))
-                        ax.set_xlabel("Average Thickness (per Coil)"); ax.set_ylabel(factor_label); ax.legend(); ax.grid(True, linestyle="--", alpha=0.4); st.pyplot(fig)
+                            st.markdown("### 📐 Correlation Criteria (|R|)")
+                            st.dataframe(pd.DataFrame({"|R| Range": ["≥ 0.70", "0.40 – 0.69", "0.20 – 0.39", "< 0.20"], "Strength": ["Strong", "Moderate", "Weak", "Negligible"], "Interpretation": ["Likely primary driver", "Contributing factor", "Minor influence", "No practical relationship"]}), use_container_width=True)
 
-                        st.markdown("### 🧠 Interpretation")
-                        if r2 is not None:
-                            if r2 >= 0.6: st.error("🔴 Thickness strongly explains color variation (High R²)")
-                            elif r2 >= 0.3: st.warning("🟠 Thickness may contribute to color drift (Moderate R²)")
-                            else: st.success("🟢 Thickness unlikely main driver (Low R²)")
-                        else: st.info("ℹ Not enough data for regression analysis")
 
-                        with st.expander("📋 Phase II – Coil level data"): st.dataframe(coil_df.sort_values("製造批號"), use_container_width=True)
+# =========================================================
+# VIEW 2: LIMIT SIMULATOR (ĐỘC LẬP HOÀN TOÀN)
+# =========================================================
+elif app_mode == "Limit Simulator Settings":
+    
+    st.title("🛠 Control Limit Calculator & Simulator")
+    st.markdown("Independent tool to calculate, compare, and simulate new control limits based on the displayed data.")
+    
+    # 1. Sidebar Settings cho chế độ này
+    st.sidebar.markdown("### 🛠 Limit Simulator Settings")
+    st.sidebar.caption("Configure factors for the limit simulator below")
 
-                        st.markdown("### 📐 Correlation Criteria (|R|)")
-                        st.dataframe(pd.DataFrame({"|R| Range": ["≥ 0.70", "0.40 – 0.69", "0.20 – 0.39", "< 0.20"], "Strength": ["Strong", "Moderate", "Weak", "Negligible"], "Interpretation": ["Likely primary driver", "Contributing factor", "Minor influence", "No practical relationship"]}), use_container_width=True)
+    sigma_input = st.sidebar.text_input(
+        "Sigma Multiplier (σ)", 
+        value="3.0", 
+        key="sim_sigma_val",
+        help="Formula: Mean ± σ * Standard Deviation. Default is 3.0"
+    )
+
+    iqr_input = st.sidebar.text_input(
+        "IQR Multiplier (k)", 
+        value="1.5", 
+        key="sim_iqr_k",
+        help="Formula: Q1 - k * IQR and Q3 + k * IQR. Default is 1.5"
+    )
+
+    try: sim_sigma = float(sigma_input)
+    except ValueError: sim_sigma = 3.0; st.sidebar.error("Invalid input for σ. Using default 3.0")
+
+    try: sim_iqr_k = float(iqr_input)
+    except ValueError: sim_iqr_k = 1.5; st.sidebar.error("Invalid input for k. Using default 1.5")
+
+    # 2. Nội dung Simulator
+    calc_col1, calc_col2 = st.columns([1, 2])
+
+    with calc_col1:
+        calc_factor = st.selectbox("Select Factor", ["ΔL", "Δa", "Δb"], key="calc_factor_sim")
+        calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True, key="calc_source_sim")
+        
+        active_data = spc[calc_factor][calc_source.lower()]["value"].dropna()
+        active_batch = spc[calc_factor][calc_source.lower()]["製造批號"]
+
+        if len(active_data) >= 3:
+            mean_val = active_data.mean()
+            std_val = active_data.std()
+            sigma_lcl = mean_val - sim_sigma * std_val
+            sigma_ucl = mean_val + sim_sigma * std_val
+            
+            q1 = active_data.quantile(0.25)
+            q3 = active_data.quantile(0.75)
+            iqr_val = q3 - q1
+            iqr_lcl = q1 - sim_iqr_k * iqr_val
+            iqr_ucl = q3 + sim_iqr_k * iqr_val
+            median_val = active_data.median()
+            
+            old_lcl, old_ucl = get_limit(color, calc_factor, calc_source)
+            
+            st.markdown("### Calculation Results (Comparison)")
+            st.caption(f"**Data Stats:** Mean = {mean_val:.3f}, Std = {std_val:.3f} | Q1 = {q1:.3f}, Q3 = {q3:.3f}, IQR = {iqr_val:.3f}")
+
+            res_df = pd.DataFrame({
+                "Limit Type": [
+                    "Google Sheet (Current)", 
+                    f"Std Dev (±{sim_sigma}σ)", 
+                    f"IQR (k={sim_iqr_k})"
+                ],
+                "LCL": [old_lcl, sigma_lcl, iqr_lcl],
+                "Center": [None, mean_val, median_val],
+                "UCL": [old_ucl, sigma_ucl, iqr_ucl]
+            })
+            st.dataframe(res_df.style.format({"LCL": "{:.3f}", "Center": "{:.3f}", "UCL": "{:.3f}"}, na_rep="-"), hide_index=True)
+            
+            plot_choice = st.radio("Select limits to visualize on chart:", ["Standard Deviation (σ)", "IQR"], horizontal=True)
+
+        else:
+            st.warning("Not enough data to calculate.")
+
+    with calc_col2:
+        if len(active_data) >= 3:
+            fig_calc, ax_calc = plt.subplots(figsize=(10, 5))
+            ax_calc.plot(active_batch, active_data, "o-", color="#808080", alpha=0.5, label="Data Point")
+            
+            if old_lcl is not None and not pd.isna(old_lcl):
+                ax_calc.axhline(old_lcl, color="red", linestyle="--", alpha=0.5, label="Sheet LCL/UCL")
+            if old_ucl is not None and not pd.isna(old_ucl):
+                ax_calc.axhline(old_ucl, color="red", linestyle="--", alpha=0.5)
+                
+            if plot_choice == "Standard Deviation (σ)":
+                active_lcl, active_ucl, active_center = sigma_lcl, sigma_ucl, mean_val
+                method_name = f"±{sim_sigma}σ"
+            else:
+                active_lcl, active_ucl, active_center = iqr_lcl, iqr_ucl, median_val
+                method_name = f"IQR (k={sim_iqr_k})"
+
+            ax_calc.axhline(active_lcl, color="blue", linewidth=2, label=f"Calculated ({method_name})")
+            ax_calc.axhline(active_ucl, color="blue", linewidth=2)
+            ax_calc.axhline(active_center, color="green", linestyle=":", label="Center Line")
+
+            out_new = (active_data < active_lcl) | (active_data > active_ucl)
+            ax_calc.scatter(active_batch[out_new], active_data[out_new], color="blue", s=100, zorder=5, label="New OOC")
+
+            ax_calc.set_title(f"New Limits Simulation for {calc_source} - {calc_factor}")
+            ax_calc.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
+            ax_calc.grid(True, alpha=0.3)
+            ax_calc.tick_params(axis="x", rotation=45)
+            fig_calc.subplots_adjust(right=0.75)
+            
+            st.pyplot(fig_calc)
