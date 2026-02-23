@@ -168,8 +168,8 @@ app_mode = st.sidebar.radio(
     "Select View Mode",
     [
         "🚀 Main Dashboard", 
-        "🎛️ Control Limit Calculator",
-        "📋 Limit Status Summary"
+        "📋 Limit Status Summary",
+         "🎛️ Control Limit Calculator"
     ],
     label_visibility="collapsed"
 )
@@ -717,3 +717,4 @@ elif app_mode == "📋 Limit Status Summary":
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
     
     st.info("**Guide:**\n- **Ready for Initial Calc**: Color has at least 3 production batches in total. Eligible for base limit setup.\n- **Recommend Phase II Recalc**: Checks Phase II data against current limits. If there are Out-Of-Control (OOC) points, recalculation is proposed.")
+
