@@ -85,46 +85,6 @@ df = load_data()
 limit_df = load_limit()
 
 # =========================
-
-# =========================
-# SIDEBAR – FILTER
-# =========================
-st.sidebar.title("🎨 Filter")
-
-color = st.sidebar.selectbox(
-    "Color code",
-    sorted(df["塗料編號"].dropna().unique())
-)
-
-df = df[df["塗料編號"] == color]
-
-# --- SỬA LOGIC CHỌN NĂM VÀ THÁNG Ở ĐÂY ---
-# Lấy danh sách các năm (ép kiểu int để mất đuôi .0)
-all_years = sorted(df["Time"].dt.year.dropna().astype(int).unique())
-
-selected_years = st.sidebar.multiselect(
-    "Year (Leave empty for ALL years)",
-    options=all_years,
-    default=[]  # Để trống mặc định để hiển thị toàn bộ data
-)
-
-selected_months = st.sidebar.multiselect(
-    "Month (optional)",
-    sorted(df["Time"].dt.month.dropna().astype(int).unique())
-)
-
-# Áp dụng logic: Nếu mảng selected_years CÓ chọn năm thì mới lọc, ngược lại lấy tất cả
-if len(selected_years) > 0:
-    df = df[df["Time"].dt.year.isin(selected_years)]
-
-# Áp dụng lọc tháng nếu có chọn
-if len(selected_months) > 0:
-    df = df[df["Time"].dt.month.isin(selected_months)]
-
-st.sidebar.divider()
-# =========================
-
-# =========================
 # FIX COLUMN NAMES
 # =========================
 df.columns = (
@@ -136,14 +96,14 @@ df.columns = (
     .str.strip()
 )
 
-# 🛠 BƯỚC KHẮC PHỤC LỖI TYPEERROR: CHUYỂN TOÀN BỘ CỘT SỐ SANG ĐỊNH DẠNG SỐ FLOAT
-numeric_cols = [
+# 🛠 ÉP KIỂU SANG SỐ (FLOAT) CHO TẤT CẢ CÁC CỘT GIÁ TRỊ ĐỂ TRÁNH LỖI TYPEERROR
+numeric_columns = [
     "入料檢測 ΔL 正面", "入料檢測 Δa 正面", "入料檢測 Δb 正面",
     "正-北 ΔL", "正-南 ΔL", "正-北 Δa", "正-南 Δa", "正-北 Δb", "正-南 Δb",
     "Avergage Thickness", "Average value ΔE 正面", "Average value ΔL 正面", 
     "Average value Δa 正面", "Average value Δb 正面"
 ]
-for col in numeric_cols:
+for col in numeric_columns:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors='coerce')
 
@@ -159,6 +119,7 @@ def get_limit(color, prefix, factor):
         row.get(f"{factor} {prefix} LCL", [None]).values[0],
         row.get(f"{factor} {prefix} UCL", [None]).values[0]
     )
+
 # =========================
 # CONTROL BATCH FUNCTION  
 def get_control_batch(color):
@@ -182,6 +143,7 @@ def get_control_batch(color):
         return int(float(value))
     except:
         return None
+
 # =========================
 def get_control_batch_code(df, control_batch):
     if control_batch is None or df.empty:
@@ -211,21 +173,28 @@ color = st.sidebar.selectbox(
 
 df = df[df["塗料編號"] == color]
 
-latest_year = df["Time"].dt.year.max()
-year = st.sidebar.selectbox(
-    "Year",
-    sorted(df["Time"].dt.year.unique()),
-    index=list(sorted(df["Time"].dt.year.unique())).index(latest_year)
+# --- SỬA LOGIC LỌC THỜI GIAN ---
+# Lấy danh sách năm/tháng đã xóa 'nan' và ép kiểu số nguyên
+all_years = sorted(df["Time"].dt.year.dropna().astype(int).unique())
+selected_years = st.sidebar.multiselect(
+    "📅 Year (Leave empty for ALL)",
+    options=all_years,
+    default=[]
 )
 
-month = st.sidebar.multiselect(
-    "Month (optional)",
-    sorted(df["Time"].dt.month.unique())
+all_months = sorted(df["Time"].dt.month.dropna().astype(int).unique())
+selected_months = st.sidebar.multiselect(
+    "📅 Month (optional)",
+    options=all_months,
+    default=[]
 )
 
-df = df[df["Time"].dt.year == year]
-if month:
-    df = df[df["Time"].dt.month.isin(month)]
+# Nếu mảng có chọn năm thì mới lọc dữ liệu, không thì giữ nguyên tất cả
+if len(selected_years) > 0:
+    df = df[df["Time"].dt.year.isin(selected_years)]
+
+if len(selected_months) > 0:
+    df = df[df["Time"].dt.month.isin(selected_months)]
 
 st.sidebar.divider()
 # =========================
@@ -308,7 +277,7 @@ def detect_out_of_control(spc_df, lcl, ucl):
     return result[result["Out_of_Control"]]
 
 # =========================
-# PREP SPC DATA (ĐÃ SỬA LỖI TRỰC TIẾP Ở ĐÂY)
+# PREP SPC DATA (DOUBLE CHECK ÉP KIỂU SỐ)
 # =========================
 def prep_spc(df, north, south):
     tmp = df.copy()
@@ -355,15 +324,20 @@ if not df.empty:
     t_min = df["Time"].min().strftime("%Y-%m-%d")
     t_max = df["Time"].max().strftime("%Y-%m-%d")
     n_batch = df["製造批號"].nunique()
+    
+    # Format hiển thị cho tiêu đề theo năm/tháng đang được lọc
+    display_year = "ALL" if len(selected_years) == 0 else ", ".join(map(str, selected_years))
+    display_month = "ALL" if len(selected_months) == 0 else ", ".join(map(str, selected_months))
 else:
     t_min = t_max = "N/A"
     n_batch = 0
+    display_year = "N/A"
+    display_month = "N/A"
 
 st.markdown(
-    f"⏱ **{t_min} → {t_max} | n = {n_batch} batches | Year: {year} | Month: {'All' if not month else month}**"
+    f"⏱ **{t_min} → {t_max} | n = {n_batch} batches | Year: {display_year} | Month: {display_month}**"
 )
 
-# ======================================================
 # ======================================================
 # 📋 SUMMARY TABLE (LAB & LINE)
 # ======================================================
@@ -572,7 +546,6 @@ def download(fig, name):
     buf.seek(0)
     st.download_button("📥 Download PNG", buf, name, "image/png")
 
-
 # =========================
 # DASHBOARD
 # =========================
@@ -606,7 +579,6 @@ for k in ["ΔL", "Δa", "Δb"]:
         download(fig, f"COMBINED_PHASE2_{color}_{k}.png")
     else:
         st.info(f"{k}: Not enough Phase II data")
-
 
 # =========================
 # DISTRIBUTION DASHBOARD
@@ -867,36 +839,6 @@ df_plot["Year"] = df_plot[time_col].dt.year
 df_plot["Month"] = df_plot[time_col].dt.to_period("M").astype(str)
 
 # =========================
-# TIME FILTER
-# =========================
-st.subheader("⏱ Time Filter")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    filter_mode = st.radio("Filter by", ["Month", "Year"], horizontal=True)
-
-with col2:
-    if filter_mode == "Month":
-        month_sel = st.multiselect(
-            "Select month(s)",
-            sorted(df_plot["Month"].unique()),
-            default=[sorted(df_plot["Month"].unique())[-1]]
-        )
-        df_plot = df_plot[df_plot["Month"].isin(month_sel)]
-    else:
-        year_sel = st.multiselect(
-            "Select year(s)",
-            sorted(df_plot["Year"].unique()),
-            default=[df_plot["Year"].max()]
-        )
-        df_plot = df_plot[df_plot["Year"].isin(year_sel)]
-
-if df_plot.empty:
-    st.warning("⚠️ No data after time filtering")
-    st.stop()
-
-# =========================
 # SCATTER: THICKNESS vs ΔE
 # =========================
 st.subheader("📊 Average Thickness vs ΔE (Each Point = 1 Coil)")
@@ -904,8 +846,9 @@ st.subheader("📊 Average Thickness vs ΔE (Each Point = 1 Coil)")
 fig, ax = plt.subplots(figsize=(10, 6))
 ax.scatter(df_plot[thickness_col], df_plot[dE_col], alpha=0.75)
 
-mean_dE = df_plot[dE_col].mean()
-ax.axhline(mean_dE, linestyle="--", linewidth=2, label=f"Mean ΔE = {mean_dE:.2f}")
+if len(df_plot) > 0:
+    mean_dE = df_plot[dE_col].mean()
+    ax.axhline(mean_dE, linestyle="--", linewidth=2, label=f"Mean ΔE = {mean_dE:.2f}")
 
 ax.set_xlabel("Average Thickness")
 ax.set_ylabel("ΔE")
@@ -1134,4 +1077,3 @@ criteria_table = pd.DataFrame({
     ]
 })
 st.dataframe(criteria_table, use_container_width=True)
-
