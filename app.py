@@ -509,13 +509,27 @@ if app_mode == "🚀 Main Dashboard":
                             ax.set_xlabel("Average Thickness (per Coil)"); ax.set_ylabel(factor_label); ax.legend(); ax.grid(True, linestyle="--", alpha=0.4); st.pyplot(fig)
 
                             st.markdown("### 🧠 Interpretation")
+                            
+                            # --- BỔ SUNG BẢNG DIỄN GIẢI HỆ SỐ R & R² ---
+                            st.markdown("""
+                            **📊 Bảng tham chiếu mức độ tương quan (Correlation Levels):**
+                            
+                            | Mức độ (Level) | Hệ số tương quan (\|R\|) | Hệ số xác định (R²) | Diễn giải (Interpretation) |
+                            | :--- | :--- | :--- | :--- |
+                            | 🔴 **Mạnh (Strong)** | \|R\| ≥ 0.77 | R² ≥ 0.60 | Độ dày ảnh hưởng lớn và giải thích phần lớn biến động màu. |
+                            | 🟠 **Trung bình (Moderate)**| 0.55 ≤ \|R\| < 0.77 | 0.30 ≤ R² < 0.60 | Độ dày có đóng góp một phần gây ra độ lệch màu. |
+                            | 🟢 **Yếu (Weak/Low)** | \|R\| < 0.55 | R² < 0.30 | Độ dày không phải là nguyên nhân chính gây lệch màu. |
+                            """)
+                            # ------------------------------------------
+
                             if r2 is not None:
                                 if r2 >= 0.6: st.error("🔴 Thickness strongly explains color variation (High R²)")
                                 elif r2 >= 0.3: st.warning("🟠 Thickness may contribute to color drift (Moderate R²)")
                                 else: st.success("🟢 Thickness unlikely main driver (Low R²)")
                             else: st.info("ℹ Not enough data for regression analysis")
-                            with st.expander("📋 Phase II – Coil level data"): st.dataframe(coil_df.sort_values("製造批號"), use_container_width=True)
-
+                            
+                            with st.expander("📋 Phase II – Coil level data"): 
+                                st.dataframe(coil_df.sort_values("製造批號"), use_container_width=True)
 
 # =========================================================
 # VIEW 2: LIMIT STATUS SUMMARY
@@ -689,6 +703,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Meets standard ≤ 1.0)")
             else: 
                 st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Exceed the limit > 1.0)")
+
 
 
 
