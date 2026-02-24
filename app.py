@@ -397,9 +397,11 @@ if app_mode == "🚀 Main Dashboard":
     if ooc_rows: st.dataframe(pd.DataFrame(ooc_rows), use_container_width=True)
     else: st.success("✅ No out-of-control batches detected")
 
-    # Section: THICKNESS CORRELATION
+   # Section: THICKNESS CORRELATION
     st.markdown("---")
     st.header("🎨 Thickness – Color Analysis (Per Coil)")
+    
+    # Lưu ý: Giữ nguyên tên cột gốc trong DataFrame của bạn (kể cả có lỗi chính tả như "Avergage Thickness")
     coil_col, time_col, thickness_col = "Coil No.", "Time", "Avergage Thickness"
     dE_col, dL_col, da_col, db_col = "Average value ΔE 正面", "Average value ΔL 正面", "Average value Δa 正面", "Average value Δb 正面"
     required_cols = [coil_col, time_col, thickness_col, dE_col, dL_col, da_col, db_col]
@@ -416,24 +418,37 @@ if app_mode == "🚀 Main Dashboard":
 
         st.subheader("⏱ Time Filter")
         col1, col2 = st.columns(2)
-        with col1: filter_mode_bottom = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
+        
+        with col1: 
+            filter_mode_bottom = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
+        
         with col2:
+            # --- CẬP NHẬT LOGIC: KHÔNG CHỌN = HIỂN THỊ TẤT CẢ ---
             if filter_mode_bottom == "Month":
-                month_sel = st.multiselect("Select month(s)", sorted(df_plot["Month"].unique()), default=[sorted(df_plot["Month"].unique())[-1]], key="bottom_month_sel")
-                df_plot = df_plot[df_plot["Month"].isin(month_sel)]
+                all_months = sorted(df_plot["Month"].unique())
+                month_sel = st.multiselect("Select month(s) [Leave empty to show all]", all_months, default=[], key="bottom_month_sel")
+                if month_sel:  # Chỉ lọc khi có tháng được chọn
+                    df_plot = df_plot[df_plot["Month"].isin(month_sel)]
             else:
-                year_sel = st.multiselect("Select year(s)", sorted(df_plot["Year"].unique()), default=[df_plot["Year"].max()], key="bottom_year_sel")
-                df_plot = df_plot[df_plot["Year"].isin(year_sel)]
+                all_years = sorted(df_plot["Year"].unique())
+                year_sel = st.multiselect("Select year(s) [Leave empty to show all]", all_years, default=[], key="bottom_year_sel")
+                if year_sel:   # Chỉ lọc khi có năm được chọn
+                    df_plot = df_plot[df_plot["Year"].isin(year_sel)]
 
         if df_plot.empty:
-            st.warning("⚠️ No data after time filtering")
+            st.warning("⚠️ No data available for the selected time period.")
         else:
             st.subheader("📊 Average Thickness vs ΔE (Each Point = 1 Coil)")
             fig, ax = plt.subplots(figsize=(10, 6))
             ax.scatter(df_plot[thickness_col], df_plot[dE_col], alpha=0.75)
-            if len(df_plot) > 0: ax.axhline(df_plot[dE_col].mean(), linestyle="--", linewidth=2, label=f"Mean ΔE = {df_plot[dE_col].mean():.2f}")
-            ax.set_xlabel("Average Thickness"); ax.set_ylabel("ΔE"); ax.set_title("Thickness – Color Relationship per Coil")
-            ax.legend(); ax.grid(True, linestyle="--", alpha=0.4); st.pyplot(fig)
+            if len(df_plot) > 0: 
+                ax.axhline(df_plot[dE_col].mean(), linestyle="--", linewidth=2, label=f"Mean ΔE = {df_plot[dE_col].mean():.2f}")
+            ax.set_xlabel("Average Thickness")
+            ax.set_ylabel("ΔE")
+            ax.set_title("Thickness – Color Relationship per Coil")
+            ax.legend()
+            ax.grid(True, linestyle="--", alpha=0.4)
+            st.pyplot(fig)
 
             st.subheader("📈 ΔE Distribution (Per Coil)")
             fig2, ax2 = plt.subplots(figsize=(10, 4))
@@ -445,8 +460,12 @@ if app_mode == "🚀 Main Dashboard":
                     x_de = np.linspace(mean_de - 5*std_de, mean_de + 5*std_de, 1000)
                     ax2.plot(x_de, normal_pdf(x_de, mean_de, std_de), linewidth=3, label="Normal Distribution")
                 ax2.axvline(mean_de, linestyle="--", linewidth=2, label=f"Mean = {mean_de:.2f}")
-                ax2.set_xlabel("ΔE"); ax2.set_ylabel("Density"); ax2.set_title("ΔE Distribution")
-                ax2.legend(); ax2.grid(True, linestyle="--", alpha=0.4); st.pyplot(fig2)
+                ax2.set_xlabel("ΔE")
+                ax2.set_ylabel("Density")
+                ax2.set_title("ΔE Distribution")
+                ax2.legend()
+                ax2.grid(True, linestyle="--", alpha=0.4)
+                st.pyplot(fig2)
 
             st.subheader("📊 Average Thickness Distribution")
             data = df_plot[thickness_col].dropna()
@@ -457,10 +476,10 @@ if app_mode == "🚀 Main Dashboard":
                 with col2: USL = st.number_input("USL", value=float(mean + 3 * std), key="bottom_usl")
                 
                 if LSL >= USL: 
-                    st.error("❌ LSL must be smaller than USL")
+                    st.error("❌ LSL must be strictly smaller than USL")
                 else:
                     fig, ax = plt.subplots(figsize=(10, 4))
-                    ax.hist(data, bins=20, density=True, alpha=0.7, edgecolor="black", label="Thickness")
+                    ax.hist(data, bins=20, density=True, alpha=0.7, edgecolor="black", label="Thickness Histogram")
                     x = np.linspace(mean - 5 * std, mean + 5 * std, 1000)
                     ax.plot(x, normal_pdf(x, mean, std), linewidth=3, label="Normal Distribution")
                     ax.axvline(mean, linestyle="--", linewidth=2, color="red", label=f"Mean = {mean:.2f}")
@@ -468,10 +487,13 @@ if app_mode == "🚀 Main Dashboard":
                     ax.axvline(USL, linestyle="--", linewidth=2, color="green", label=f"USL = {USL:.2f}")
                     ax.axvspan(LSL, USL, alpha=0.15, label="Spec Zone")
                     ax.set_xlim(mean - 5 * std, mean + 5 * std)
-                    ax.set_xlabel("Average Thickness"); ax.set_ylabel("Density")
-                    ax.grid(True, linestyle="--", alpha=0.4); ax.legend(); st.pyplot(fig)
+                    ax.set_xlabel("Average Thickness")
+                    ax.set_ylabel("Density")
+                    ax.grid(True, linestyle="--", alpha=0.4)
+                    ax.legend()
+                    st.pyplot(fig)
 
-            with st.expander("📋 Coil Summary"):
+            with st.expander("📋 Coil Summary Data"):
                 st.dataframe(df_plot[[coil_col, thickness_col, dE_col, dL_col, da_col, db_col, time_col]].sort_values(by=dE_col, ascending=False), use_container_width=True)
 
             st.markdown("---")
@@ -481,35 +503,46 @@ if app_mode == "🚀 Main Dashboard":
             else:
                 df_p2 = df[(df["製造批號"] >= control_batch_code) & (df["塗料編號"] == color)].copy()
                 if df_p2.empty:
-                    st.warning("⚠ No Phase II data after filtering")
+                    st.warning("⚠ No Phase II data after filtering.")
                 else:
                     COLOR_FACTORS = {"ΔL": ["入料檢測 ΔL 正面", "Average value ΔL 正面"], "Δa": ["入料檢測 Δa 正面", "Average value Δa 正面"], "Δb": ["入料檢測 Δb 正面", "Average value Δb 正面"], "ΔE": ["Average value ΔE 正面"]}
                     available_factors = {k: c for k, cols in COLOR_FACTORS.items() for c in cols if c in df_p2.columns}
+                    
                     if not available_factors:
-                        st.warning("⚠ No color factor columns found")
+                        st.warning("⚠ No color factor columns found in dataset.")
                     else:
                         factor_label = st.selectbox("🎯 Select Color Factor", list(available_factors.keys()), index=0, key="bottom_color_factor")
                         factor_col = available_factors[factor_label]
                         coil_df = df_p2.groupby("Coil No.", as_index=False).agg({"Avergage Thickness": "mean", factor_col: "mean", "製造批號": "min"}).dropna()
+                        
                         if coil_df.empty:
-                            st.warning("⚠ No valid coil-level data")
+                            st.warning("⚠ No valid coil-level data.")
                         else:
                             lcl, ucl = safe_get_limit(color, "LINE", factor_label)
                             ooc_mask = (coil_df[factor_col] < lcl) | (coil_df[factor_col] > ucl) if lcl is not None and ucl is not None else np.zeros(len(coil_df), dtype=bool)
                             x, y = coil_df["Avergage Thickness"].values, coil_df[factor_col].values
                             r2 = None
+                            
                             if len(x) >= 2:
                                 slope, intercept = np.polyfit(x, y, 1)
                                 r2 = 1 - np.sum((y - (slope * x + intercept)) ** 2) / np.sum((y - np.mean(y)) ** 2) if np.sum((y - np.mean(y)) ** 2) != 0 else 0
+                            
                             fig, ax = plt.subplots(figsize=(9, 6))
                             ax.scatter(coil_df[~ooc_mask]["Avergage Thickness"], coil_df[~ooc_mask][factor_col], alpha=0.7, label="Normal Coil")
-                            if ooc_mask.any(): ax.scatter(coil_df[ooc_mask]["Avergage Thickness"], coil_df[ooc_mask][factor_col], color="red", s=80, label="OOC Coil")
-                            if r2 is not None: ax.plot(np.linspace(x.min(), x.max(), 100), slope * np.linspace(x.min(), x.max(), 100) + intercept, linestyle="--", linewidth=2, label=f"Regression line (R² = {r2:.3f})")
+                            if ooc_mask.any(): 
+                                ax.scatter(coil_df[ooc_mask]["Avergage Thickness"], coil_df[ooc_mask][factor_col], color="red", s=80, label="OOC Coil")
+                            if r2 is not None: 
+                                ax.plot(np.linspace(x.min(), x.max(), 100), slope * np.linspace(x.min(), x.max(), 100) + intercept, linestyle="--", linewidth=2, label=f"Regression Line (R² = {r2:.3f})")
+                            
                             ax.set_title(f"Phase II – Per Coil Analysis\nThickness vs {factor_label}" + (f" | r = {coil_df['Avergage Thickness'].corr(coil_df[factor_col]):.3f}, R² = {r2:.3f}" if r2 is not None else ""))
-                            ax.set_xlabel("Average Thickness (per Coil)"); ax.set_ylabel(factor_label); ax.legend(); ax.grid(True, linestyle="--", alpha=0.4); st.pyplot(fig)
+                            ax.set_xlabel("Average Thickness (per Coil)")
+                            ax.set_ylabel(factor_label)
+                            ax.legend()
+                            ax.grid(True, linestyle="--", alpha=0.4)
+                            st.pyplot(fig)
 
                             st.markdown("### 🧠 Interpretation")
-                             # --- CORRELATION REFERENCE TABLE ---
+                            # --- CORRELATION REFERENCE TABLE ---
                             st.markdown("""
                             **📊 Correlation Levels Reference:**
                             
@@ -529,12 +562,10 @@ if app_mode == "🚀 Main Dashboard":
                                 else: 
                                     st.success("🟢 Thickness unlikely main driver (Low R²)")
                             else: 
-                                st.info("ℹ Not enough data for regression analysis")
+                                st.info("ℹ Not enough data for regression analysis.")
                             
                             with st.expander("📋 Phase II – Coil Level Data"): 
-                                # Lưu ý: Giữ nguyên "製造批號" nếu đây là tên cột cố định trong file dữ liệu gốc của bạn
                                 st.dataframe(coil_df.sort_values("製造批號"), use_container_width=True)
-
 # =========================================================
 # VIEW 2: LIMIT STATUS SUMMARY
 # =========================================================
@@ -707,6 +738,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Meets standard ≤ 1.0)")
             else: 
                 st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Exceed the limit > 1.0)")
+
 
 
 
