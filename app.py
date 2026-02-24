@@ -957,10 +957,11 @@ elif app_mode == "🎛️ Control Limit Calculator":
     # Hiển thị công thức minh hoạ (Tùy chọn)
     st.latex(r"\Delta E = \sqrt{\Delta L^2 + \Delta a^2 + \Delta b^2}")
 # VIEW 5: LAB VS LINE SCALE-UP ANALYSIS
+# VIEW 5: LAB VS LINE SCALE-UP ANALYSIS
 # =========================================================
 elif app_mode == "🔬 Lab vs Line Scale-up":
     st.title("🔬 Lab to Line Scale-up Analysis")
-    st.markdown("Analyze the historical shift (offset) between Laboratory inputs (LAB) and actual Mass Production results (LINE).")
+    st.markdown("Analyze the historical shift between LAB and LINE. The ⭐ **Prediction Point** will appear on the chart as you input values.")
 
     if df.empty:
         st.warning("⚠️ No data available for analysis.")
@@ -978,9 +979,7 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
         batch_compare["LINE_Δb"] = batch_compare[["正-北 Δb", "正-南 Δb"]].mean(axis=1)
 
         batch_compare = batch_compare.rename(columns={
-            "入料檢測 ΔL 正面": "LAB_ΔL",
-            "入料檢測 Δa 正面": "LAB_Δa",
-            "入料檢測 Δb 正面": "LAB_Δb"
+            "入料檢測 ΔL 正面": "LAB_ΔL", "入料檢測 Δa 正面": "LAB_Δa", "入料檢測 Δb 正面": "LAB_Δb"
         })
 
         factors = ["ΔL", "Δa", "Δb"]
@@ -995,38 +994,46 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
                     st.info(f"Not enough data for {f}.")
                     continue
                     
-                mean_shift = np.mean(y - x)
-                std_shift = np.std(y - x)
                 slope, intercept = np.polyfit(x, y, 1)
-                r2_val = (np.corrcoef(x, y)[0, 1])**2
-                
-                # Metrics Section
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Avg Shift (LINE-LAB)", f"{mean_shift:+.3f}")
-                m2.metric("Fluctuation (1σ)", f"±{std_shift:.3f}")
-                m3.metric("Correlation (R²)", f"{r2_val:.3f}")
+                std_shift = np.std(y - x)
 
+                # Chia cột: Cột nhập liệu bên phải, Biểu đồ bên trái
                 col_chart, col_pred = st.columns([2.2, 1])
-                
+
+                with col_pred:
+                    st.subheader("🔮 Prediction Input")
+                    # Lấy giá trị nhập liệu từ người dùng
+                    user_lab = st.number_input(f"Input LAB {f} to see ⭐:", value=float(x[-1]), step=0.01, format="%.3f", key=f"f5_in_{f}")
+                    
+                    # Tính toán giá trị LINE dự báo
+                    pred_line = slope * user_lab + intercept
+                    ci = 2 * std_shift
+                    
+                    st.info(f"**Predicted LINE {f}:**\n## {pred_line:.3f}")
+                    st.caption(f"Range (95% CI): **[{pred_line-ci:.3f} to {pred_line+ci:.3f}]**")
+
                 with col_chart:
                     fig, ax = plt.subplots(figsize=(8, 6))
-                    
-                    # Vẽ lưới tinh tế
                     ax.grid(True, linestyle="--", alpha=0.3, zorder=0)
                     
-                    # Vẽ các điểm dữ liệu
-                    ax.scatter(x, y, alpha=0.8, color="#3498db", edgecolors="white", s=80, label="Historical Batches", zorder=3)
+                    # 1. Vẽ dữ liệu lịch sử
+                    ax.scatter(x, y, alpha=0.6, color="#3498db", edgecolors="white", s=80, label="Past Batches", zorder=3)
                     
-                    # Vẽ đường Ideal & Trend
-                    mn, mx = min(x.min(), y.min()) - 0.1, max(x.max(), y.max()) + 0.1
+                    # 2. Vẽ điểm dự báo (NGÔI SAO ⭐)
+                    ax.scatter(user_lab, pred_line, color="#f1c40f", edgecolors="black", s=300, marker="*", label="Prediction ⭐", zorder=5)
+                    
+                    # 3. Vẽ đường Ideal & Trend
+                    # Mở rộng trục để bao phủ cả điểm dự báo mới
+                    all_x = np.append(x, user_lab)
+                    all_y = np.append(y, pred_line)
+                    mn, mx = min(all_x.min(), all_y.min()) - 0.1, max(all_x.max(), all_y.max()) + 0.1
+                    
                     ax.plot([mn, mx], [mn, mx], color="#7f8c8d", linestyle="--", alpha=0.6, label="Ideal (LINE=LAB)", zorder=1)
-                    ax.plot(np.linspace(x.min(), x.max(), 100), slope * np.linspace(x.min(), x.max(), 100) + intercept, 
-                            color="#e74c3c", linewidth=2.5, label="Actual Trend", zorder=2)
+                    ax.plot(np.linspace(all_x.min(), all_x.max(), 100), slope * np.linspace(all_x.min(), all_x.max(), 100) + intercept, 
+                            color="#e74c3c", linewidth=2.5, label="Trend Line", zorder=2)
                     
-                    # --- CẢI TIẾN: COLOR GUIDES (Nhãn chỉ dẫn chuyên nghiệp) ---
-                    # Định nghĩa phong cách khung cho từng màu
+                    # --- Color Guides ---
                     bbox_style = dict(boxstyle="round,pad=0.3", alpha=0.1, lw=1)
-                    
                     if f == "ΔL":
                         ax.annotate("☀️ Lighter", xy=(0.95, 0.95), xycoords='axes fraction', ha='right', bbox=dict(facecolor='yellow', **bbox_style))
                         ax.annotate("🌑 Darker", xy=(0.05, 0.05), xycoords='axes fraction', ha='left', bbox=dict(facecolor='gray', **bbox_style))
@@ -1037,26 +1044,15 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
                         ax.annotate("🟡 Yellower", xy=(0.95, 0.95), xycoords='axes fraction', ha='right', bbox=dict(facecolor='orange', **bbox_style))
                         ax.annotate("🔵 Bluer", xy=(0.05, 0.05), xycoords='axes fraction', ha='left', bbox=dict(facecolor='blue', **bbox_style))
 
-                    ax.set_title(f"Lab-to-Line Scale-up Analysis: {f}", fontsize=12, fontweight='bold', pad=15)
-                    ax.set_xlabel(f"LAB Input ({f})", fontsize=10)
-                    ax.set_ylabel(f"LINE Actual ({f})", fontsize=10)
-                    ax.legend(loc='lower right', frameon=True, fontsize=9)
-                    
-                    # Giới hạn trục cân đối
+                    ax.set_title(f"Visual Prediction: {f}", fontsize=12, fontweight='bold')
+                    ax.set_xlabel(f"LAB Input ({f})")
+                    ax.set_ylabel(f"LINE Actual ({f})")
+                    ax.legend(loc='lower right', frameon=True)
                     ax.set_xlim(mn, mx)
                     ax.set_ylim(mn, mx)
                     
                     st.pyplot(fig)
                     plt.close(fig)
-
-                with col_pred:
-                    st.subheader("🔮 Predictor")
-                    user_lab = st.number_input(f"New LAB {f}:", value=float(x[-1]), step=0.01, format="%.3f", key=f"f5_{f}")
-                    pred_line = slope * user_lab + intercept
-                    ci = 2 * std_shift
-                    
-                    st.info(f"**Predicted LINE {f}:**\n## {pred_line:.3f}")
-                    st.caption(f"Confidence Interval (95%):\n**[{pred_line-ci:.3f} to {pred_line+ci:.3f}]**")
 
 
 
