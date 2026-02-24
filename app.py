@@ -677,6 +677,7 @@ elif app_mode == "📋 Limit Status Summary":
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
     # =========================================================
+    # =========================================================
     # NEW SECTION: ACTION REQUIRED (MISSING LIMITS)
     # =========================================================
     st.markdown("---")
@@ -691,14 +692,17 @@ elif app_mode == "📋 Limit Status Summary":
     
     if not pending_colors.empty:
         st.warning(f"Found **{len(pending_colors)}** color(s) waiting for limit calculation:")
-        # Chỉ hiển thị các cột quan trọng cho gọn gàng
-        st.dataframe(
-            pending_colors[["Color Code", "Total Batches"]].reset_index(drop=True), 
-            use_container_width=False
-        )
+        
+        # Tạo cột tỷ lệ 1:2 để bảng chỉ chiếm 1/3 màn hình bên trái, nhìn sẽ cân đối và sang hơn
+        col_table, col_empty = st.columns([1, 2])
+        with col_table:
+            st.dataframe(
+                pending_colors[["Color Code", "Total Batches"]], 
+                hide_index=True,           # Ẩn cột index 0, 1, 2...
+                use_container_width=True   # Trải đều độ rộng lấp đầy không gian cột 1
+            )
     else:
         st.success("🎉 All colors with sufficient data already have their control limits configured!")
-
 
 # =========================================================
 # VIEW 3: CONTROL LIMIT CALCULATOR
@@ -843,6 +847,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
     
     # Hiển thị công thức minh hoạ (Tùy chọn)
     st.latex(r"\Delta E = \sqrt{\Delta L^2 + \Delta a^2 + \Delta b^2}")
+
 
 
 
