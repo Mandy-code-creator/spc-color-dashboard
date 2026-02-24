@@ -618,7 +618,7 @@ elif app_mode == "📋 Limit Status Summary":
         
         cb = get_control_batch(c)
         cb_code = get_control_batch_code(df_c, cb)
-        recalc_status = "❌ Not enough data"
+        recalc_status = "❌ Not Enough Data"
         phase2_batches = 0
         
         if cb_code is not None:
@@ -640,14 +640,22 @@ elif app_mode == "📋 Limit Status Summary":
                                 if consec > max_consec_any_chart: max_consec_any_chart = consec
                                 if total_ooc > max_total_any_chart: max_total_any_chart = total_ooc
                     
-                    if max_consec_any_chart >= c_th: recalc_status = f"⚠️ Propose Recalc ({max_consec_any_chart} consec OOCs)"
-                    elif max_total_any_chart >= t_th: recalc_status = f"⚠️ Propose Recalc ({max_total_any_chart} total OOCs)"
-                    else: recalc_status = f"✅ Stable (Max Consec: {max_consec_any_chart}, Total: {max_total_any_chart})"
-                else: recalc_status = "❌ Missing Current Limits"
+                    if max_consec_any_chart >= c_th: 
+                        recalc_status = f"⚠️ Propose Recalc ({max_consec_any_chart} Consec. OOCs)"
+                    elif max_total_any_chart >= t_th: 
+                        recalc_status = f"⚠️ Propose Recalc ({max_total_any_chart} Total OOCs)"
+                    else: 
+                        recalc_status = f"✅ Stable (Max Consec: {max_consec_any_chart}, Total: {max_total_any_chart})"
+                else: 
+                    recalc_status = "❌ Missing Current Limits"
             
         summary_data.append({
-            "Color Code": c, "Total Batches": total_batches, "Phase II Batches": phase2_batches,
-            "Current Limits": status, "Ready for Calc (Total)": can_calc_initial, "Recommend Recalc (Phase II)": recalc_status
+            "Color Code": c, 
+            "Total Batches": total_batches, 
+            "Phase II Batches": phase2_batches,
+            "Current Limits": status, 
+            "Ready for Calc (Total)": can_calc_initial, 
+            "Recommend Recalc (Phase II)": recalc_status
         })
 
     summary_df = pd.DataFrame(summary_data)
@@ -660,12 +668,11 @@ elif app_mode == "📋 Limit Status Summary":
     col1.metric("Total Colors", total_c)
     col2.metric("Colors Configured", has_limit_c)
     col3.metric("Ready to Calc (Initial)", ready_initial_c)
-    col4.metric("Needs Recalculation", needs_recalc_c, delta="Process Shift", delta_color="inverse")
+    col4.metric("Needs Recalculation", needs_recalc_c, delta="Process Shift Alert", delta_color="inverse")
 
     st.markdown("---")
     st.markdown("### 📊 Comprehensive Status Table")
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
-
 
 # =========================================================
 # VIEW 3: CONTROL LIMIT CALCULATOR
@@ -752,6 +759,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Meets standard ≤ 1.0)")
             else: 
                 st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Exceed the limit > 1.0)")
+
 
 
 
