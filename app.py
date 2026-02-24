@@ -681,26 +681,28 @@ elif app_mode == "🎛️ Control Limit Calculator":
     
     st.title("🎛️ Control Limits Analysis & Derived ΔE")
     
-    with st.expander("⚙️ Data Source", expanded=True):
-        st.markdown("**Select data source:**")
+    with st.expander("⚙️ Data Source Settings", expanded=True):
+        st.markdown("**Select Data Source:**")
         calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True)
         
-    # Tạo một placeholder để đẩy kết quả tính toán tổng (Target Derived ΔE UCL) lên đầu trang
+    # Placeholder để đẩy bảng so sánh 2 phương pháp lên đầu trang
     result_placeholder = st.empty()
     st.markdown("---")
 
     factors = ["ΔL", "Δa", "Δb"]
-    calc_res, dE_max_sq = {}, 0
+    calc_res = {}
+    
+    # Khởi tạo 2 biến để tính tổng bình phương cho 2 phương pháp
+    dE_std_sq, dE_iqr_sq = 0, 0
 
     for f in factors:
         st.markdown(f"### 📊 Analysis: **{f}** ({calc_source})")
         
-        # --- TÁCH RIÊNG THIẾT LẬP THAM SỐ CHO TỪNG YẾU TỐ ---
         col_sig, col_iqr = st.columns(2)
         with col_sig:
-            sig = st.number_input(f"🔸 Sigma (K) cho {f}", value=3.0, step=0.1, key=f"sig_{f}")
+            sig = st.number_input(f"🔸 Sigma (K) for {f}", value=3.0, step=0.1, key=f"sig_{f}")
         with col_iqr:
-            iqr_k = st.number_input(f"🔸 IQR Sens. cho {f}", value=1.5, step=0.1, key=f"iqr_{f}")
+            iqr_k = st.number_input(f"🔸 IQR Sens. for {f}", value=1.5, step=0.1, key=f"iqr_{f}")
         
         d = spc_data[f][calc_source.lower()]["value"]
         
@@ -716,7 +718,10 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 "data": d, "batch": spc_data[f][calc_source.lower()]["製造批號"], "m": m, "s": s, "median": d.median(),
                 "sig": sig, "iqr_k": iqr_k, "olcl": olcl, "oucl": oucl, "std_lcl": std_lcl, "std_ucl": std_ucl, "iqr_lcl": iqr_lcl, "iqr_ucl": iqr_ucl
             }
-            dE_max_sq += max(abs(std_lcl), abs(std_ucl))**2
+            
+            # Tính max bình phương cho từng phương pháp độc lập
+            dE_std_sq += max(abs(std_lcl), abs(std_ucl))**2
+            dE_iqr_sq += max(abs(iqr_lcl), abs(iqr_ucl))**2
 
             col_chart, col_table = st.columns([2.2, 1])
             res = calc_res[f]
@@ -744,25 +749,42 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 ax.axhline(res["iqr_lcl"], color="#1f77b4", linestyle=":", linewidth=2, label=f"2. IQR (k={res['iqr_k']})")
                 ax.axhline(res["iqr_ucl"], color="#1f77b4", linestyle=":", linewidth=2)
                 ax.axhline(res["m"], color="#2ca02c", linestyle="-.", alpha=0.5, label="Mean")
-                ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=9); ax.grid(True, alpha=0.3)
-                plt.xticks(rotation=45); fig.subplots_adjust(right=0.75, bottom=0.2)
-                st.pyplot(fig); plt.close(fig)
+                ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=9)
+                ax.grid(True, alpha=0.3)
+                plt.xticks(rotation=45)
+                fig.subplots_adjust(right=0.75, bottom=0.2)
+                st.pyplot(fig)
+                plt.close(fig)
             st.markdown("---")
         else:
             st.warning(f"Not enough data for {f} (min 3 batches).")
 
-    # --- FILL RESULTS INTO PLACEHOLDER AT THE TOP ---
+    # --- ĐIỀN KẾT QUẢ VÀO PLACEHOLDER Ở ĐẦU TRANG CHO CẢ 2 PHƯƠNG PHÁP ---
     if len(calc_res) == 3:
-        dE_ucl = math.sqrt(dE_max_sq)
+        # Căn bậc 2 để ra giá trị ΔE cuối cùng
+        dE_std = math.sqrt(dE_std_sq)
+        dE_iqr = math.sqrt(dE_iqr_sq)
         
-        # Set threshold based on Data Source
+        # Mốc đánh giá tùy theo LINE hay LAB
         limit_threshold = 1.0 if calc_source.upper() == "LINE" else 0.5
         
         with result_placeholder.container():
-            if dE_ucl <= limit_threshold: 
-                st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Meets standard ≤ {limit_threshold})")
-            else: 
-                st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Exceeds the limit > {limit_threshold})")
+            st.markdown("### 🎯 Derived ΔE UCL Comparison")
+            col_res1, col_res2 = st.columns(2)
+            
+            # Hiển thị kết quả Method 1 (Standard)
+            with col_res1:
+                if dE_std <= limit_threshold: 
+                    st.success(f"**Method 1 (Standard)** ΔE UCL: **{dE_std:.3f}** (✅ ≤ {limit_threshold})")
+                else: 
+                    st.error(f"**Method 1 (Standard)** ΔE UCL: **{dE_std:.3f}** (⚠️ > {limit_threshold})")
+                    
+            # Hiển thị kết quả Method 2 (IQR)
+            with col_res2:
+                if dE_iqr <= limit_threshold: 
+                    st.success(f"**Method 2 (IQR)** ΔE UCL: **{dE_iqr:.3f}** (✅ ≤ {limit_threshold})")
+                else: 
+                    st.error(f"**Method 2 (IQR)** ΔE UCL: **{dE_iqr:.3f}** (⚠️ > {limit_threshold})")
 
 
 
