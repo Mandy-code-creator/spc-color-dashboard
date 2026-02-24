@@ -961,7 +961,10 @@ elif app_mode == "🎛️ Control Limit Calculator":
 # =========================================================
 elif app_mode == "🔬 Lab vs Line Scale-up":
     st.title("🔬 Lab to Line Scale-up Analysis")
-    st.markdown("Analyze the historical shift between LAB and LINE. The ⭐ **Prediction Point** will appear on the chart as you input values.")
+    st.markdown("""
+    Analyze the historical deviation between **Laboratory (LAB)** inputs and **Production (LINE)** outcomes. 
+    Use this tool to determine the necessary **Offset Compensation** for color formulation.
+    """)
 
     if df.empty:
         st.warning("⚠️ No data available for analysis.")
@@ -974,12 +977,15 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
             "正-北 Δb": "mean", "正-南 Δb": "mean"
         }).dropna()
 
+        # Average Production (LINE) results
         batch_compare["LINE_ΔL"] = batch_compare[["正-北 ΔL", "正-南 ΔL"]].mean(axis=1)
         batch_compare["LINE_Δa"] = batch_compare[["正-北 Δa", "正-南 Δa"]].mean(axis=1)
         batch_compare["LINE_Δb"] = batch_compare[["正-北 Δb", "正-南 Δb"]].mean(axis=1)
 
         batch_compare = batch_compare.rename(columns={
-            "入料檢測 ΔL 正面": "LAB_ΔL", "入料檢測 Δa 正面": "LAB_Δa", "入料檢測 Δb 正面": "LAB_Δb"
+            "入料檢測 ΔL 正面": "LAB_ΔL",
+            "入料檢測 Δa 正面": "LAB_Δa",
+            "入料檢測 Δb 正面": "LAB_Δb"
         })
 
         factors = ["ΔL", "Δa", "Δb"]
@@ -987,52 +993,73 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
         
         for i, f in enumerate(factors):
             with tabs[i]:
-                x = batch_compare[f"LAB_{f}"].values
-                y = batch_compare[f"LINE_{f}"].values
+                lab_col, line_col = f"LAB_{f}", f"LINE_{f}"
+                x, y = batch_compare[lab_col].values, batch_compare[line_col].values
                 
                 if len(x) < 3:
-                    st.info(f"Not enough data for {f}.")
+                    st.info(f"Insufficient paired data for {f}.")
                     continue
                     
+                # --- 2. STATISTICAL CALCULATION ---
+                diff = y - x
+                mean_bias = np.mean(diff)
+                std_dev = np.std(diff)
                 slope, intercept = np.polyfit(x, y, 1)
-                std_shift = np.std(y - x)
+                r2_score = (np.corrcoef(x, y)[0, 1])**2
+                
+                # Metrics Display
+                st.markdown(f"### 📊 Process Metrics: **{f}**")
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Systematic Bias (Avg)", f"{mean_bias:+.3f}", help="Average deviation between Line and Lab")
+                m2.metric("Fluctuation (1σ)", f"±{std_dev:.3f}", help="Standard deviation of the shift")
+                m3.metric("Predictability (R²)", f"{r2_score:.3f}", help="Model reliability (closer to 1.0 is better)")
 
-                # Chia cột: Cột nhập liệu bên phải, Biểu đồ bên trái
+                # --- 3. AI ANALYTICAL INSIGHTS ---
+                # Determine direction based on factor
+                if f == "ΔL":
+                    direction = "LIGHTER" if mean_bias > 0.05 else "DARKER" if mean_bias < -0.05 else "STABLE"
+                elif f == "Δa":
+                    direction = "REDDER" if mean_bias > 0.05 else "GREENER" if mean_bias < -0.05 else "STABLE"
+                else: # Δb
+                    direction = "YELLOWER" if mean_bias > 0.05 else "BLUER" if mean_bias < -0.05 else "STABLE"
+
+                if direction != "STABLE":
+                    st.warning(f"💡 **Insight:** Production tends to be **{direction}** than Lab samples (Offset: {mean_bias:+.3f}).")
+                else:
+                    st.success(f"✅ **Insight:** Production results are highly consistent with Lab inputs.")
+
+                # --- 4. VISUALIZATION & PREDICTOR ---
                 col_chart, col_pred = st.columns([2.2, 1])
-
+                
                 with col_pred:
-                    st.subheader("🔮 Prediction Input")
-                    # Lấy giá trị nhập liệu từ người dùng
-                    user_lab = st.number_input(f"Input LAB {f} to see ⭐:", value=float(x[-1]), step=0.01, format="%.3f", key=f"f5_in_{f}")
+                    st.subheader("🔮 Outcome Predictor")
+                    user_lab = st.number_input(f"Current LAB {f}:", value=float(x[-1]), step=0.01, format="%.3f", key=f"f5_en_{f}")
                     
-                    # Tính toán giá trị LINE dự báo
+                    # Prediction calculation
                     pred_line = slope * user_lab + intercept
-                    ci = 2 * std_shift
+                    ci_95 = 2 * std_dev
                     
                     st.info(f"**Predicted LINE {f}:**\n## {pred_line:.3f}")
-                    st.caption(f"Range (95% CI): **[{pred_line-ci:.3f} to {pred_line+ci:.3f}]**")
+                    st.caption(f"Confidence Range (95%):\n**[{pred_line-ci_95:.3f} to {pred_line+ci_95:.3f}]**")
+                    
+                    # Offset Suggestion
+                    st.success(f"🛠 **Lab Suggestion:**\nTo reach 0.000 on LINE, formulate LAB at: **{-mean_bias:+.3f}**")
 
                 with col_chart:
                     fig, ax = plt.subplots(figsize=(8, 6))
                     ax.grid(True, linestyle="--", alpha=0.3, zorder=0)
                     
-                    # 1. Vẽ dữ liệu lịch sử
-                    ax.scatter(x, y, alpha=0.6, color="#3498db", edgecolors="white", s=80, label="Past Batches", zorder=3)
-                    
-                    # 2. Vẽ điểm dự báo (NGÔI SAO ⭐)
+                    # Scatter and Prediction Star
+                    ax.scatter(x, y, alpha=0.6, color="#3498db", edgecolors="white", s=80, label="Historical Data", zorder=3)
                     ax.scatter(user_lab, pred_line, color="#f1c40f", edgecolors="black", s=300, marker="*", label="Prediction ⭐", zorder=5)
                     
-                    # 3. Vẽ đường Ideal & Trend
-                    # Mở rộng trục để bao phủ cả điểm dự báo mới
-                    all_x = np.append(x, user_lab)
-                    all_y = np.append(y, pred_line)
-                    mn, mx = min(all_x.min(), all_y.min()) - 0.1, max(all_x.max(), all_y.max()) + 0.1
+                    # Reference Lines
+                    mn, mx = min(x.min(), y.min(), user_lab, pred_line) - 0.1, max(x.max(), y.max(), user_lab, pred_line) + 0.1
+                    ax.plot([mn, mx], [mn, mx], color="#7f8c8d", linestyle="--", alpha=0.6, label="Ideal (LINE = LAB)", zorder=1)
+                    ax.plot(np.linspace(mn, mx, 100), slope * np.linspace(mn, mx, 100) + intercept, color="#e74c3c", linewidth=2.5, label="Actual Trend", zorder=2)
                     
-                    ax.plot([mn, mx], [mn, mx], color="#7f8c8d", linestyle="--", alpha=0.6, label="Ideal (LINE=LAB)", zorder=1)
-                    ax.plot(np.linspace(all_x.min(), all_x.max(), 100), slope * np.linspace(all_x.min(), all_x.max(), 100) + intercept, 
-                            color="#e74c3c", linewidth=2.5, label="Trend Line", zorder=2)
+                    # Professional Color Guides
                     
-                    # --- Color Guides ---
                     bbox_style = dict(boxstyle="round,pad=0.3", alpha=0.1, lw=1)
                     if f == "ΔL":
                         ax.annotate("☀️ Lighter", xy=(0.95, 0.95), xycoords='axes fraction', ha='right', bbox=dict(facecolor='yellow', **bbox_style))
@@ -1044,16 +1071,14 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
                         ax.annotate("🟡 Yellower", xy=(0.95, 0.95), xycoords='axes fraction', ha='right', bbox=dict(facecolor='orange', **bbox_style))
                         ax.annotate("🔵 Bluer", xy=(0.05, 0.05), xycoords='axes fraction', ha='left', bbox=dict(facecolor='blue', **bbox_style))
 
-                    ax.set_title(f"Visual Prediction: {f}", fontsize=12, fontweight='bold')
+                    ax.set_title(f"Lab-to-Line Scale-up: {f}", fontweight='bold')
                     ax.set_xlabel(f"LAB Input ({f})")
                     ax.set_ylabel(f"LINE Actual ({f})")
-                    ax.legend(loc='lower right', frameon=True)
-                    ax.set_xlim(mn, mx)
-                    ax.set_ylim(mn, mx)
+                    ax.legend(loc='lower right')
+                    ax.set_xlim(mn, mx); ax.set_ylim(mn, mx)
                     
                     st.pyplot(fig)
                     plt.close(fig)
-
 
 
 
