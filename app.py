@@ -611,7 +611,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
     
     st.title("🎛️ Control Limits Analysis & Derived ΔE")
     
-    with st.expander("⚙️ Nguồn dữ liệu (Data Source)", expanded=True):
+    with st.expander("⚙️ Data Source", expanded=True):
         st.markdown("**Chọn nguồn dữ liệu:**")
         calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True)
         
@@ -689,5 +689,6 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Meets standard ≤ 1.0)")
             else: 
                 st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Exceed the limit > 1.0)")
+
 
 
