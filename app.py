@@ -195,7 +195,6 @@ spc_data = calculate_batch_averages(df)
 
 # =========================================================
 # VIEW 1: MAIN DASHBOARD (BẢN FULL GỐC)
-# VIEW 1: MAIN DASHBOARD (BẢN FULL GỐC)
 # =========================================================
 if app_mode == "🚀 Main Dashboard":
 
@@ -677,6 +676,7 @@ elif app_mode == "📋 Limit Status Summary":
     st.markdown("### 📊 Comprehensive Status Table")
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
+
 # =========================================================
 # VIEW 3: CONTROL LIMIT CALCULATOR
 # =========================================================
@@ -820,6 +820,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
     
     # Hiển thị công thức minh hoạ (Tùy chọn)
     st.latex(r"\Delta E = \sqrt{\Delta L^2 + \Delta a^2 + \Delta b^2}")
+
 
 
 
