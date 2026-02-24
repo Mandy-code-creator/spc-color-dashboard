@@ -563,7 +563,21 @@ if app_mode == "🚀 Main Dashboard":
                                     st.success("🟢 Thickness unlikely main driver (Low R²)")
                             else: 
                                 st.info("ℹ Not enough data for regression analysis.")
-                            
+                            # --- AUTOMATED RISK ALERT (OOC CLUSTERING) ---
+                            if ooc_mask.any() and (~ooc_mask).any():
+                                thick_col = "Avergage Thickness"
+                                ooc_thick = coil_df[ooc_mask][thick_col]
+                                norm_thick = coil_df[~ooc_mask][thick_col]
+                                
+                                mean_ooc = ooc_thick.mean()
+                                q1_norm = norm_thick.quantile(0.25)
+                                q3_norm = norm_thick.quantile(0.75)
+                                
+                                if mean_ooc > q3_norm:
+                                    st.warning(f"🚨 **Automated Risk Alert:** OOC coils are noticeably clustered in the **HIGH** thickness zone (Mean OOC Thickness: {mean_ooc:.2f} > Normal Q3: {q3_norm:.2f}). Consider tightening the **Upper Specification Limit (USL)** for thickness to mitigate color drift risks.")
+                                elif mean_ooc < q1_norm:
+                                    st.warning(f"🚨 **Automated Risk Alert:** OOC coils are noticeably clustered in the **LOW** thickness zone (Mean OOC Thickness: {mean_ooc:.2f} < Normal Q1: {q1_norm:.2f}). Consider tightening the **Lower Specification Limit (LSL)** for thickness to mitigate color drift risks.")
+                            # ---------------------------------------------
                             with st.expander("📋 Phase II – Coil Level Data"): 
                                 st.dataframe(coil_df.sort_values("製造批號"), use_container_width=True)
 # =========================================================
@@ -738,6 +752,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Meets standard ≤ 1.0)")
             else: 
                 st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Exceed the limit > 1.0)")
+
 
 
 
