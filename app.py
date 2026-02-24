@@ -676,6 +676,29 @@ elif app_mode == "📋 Limit Status Summary":
     st.markdown("### 📊 Comprehensive Status Table")
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
+    # =========================================================
+    # NEW SECTION: ACTION REQUIRED (MISSING LIMITS)
+    # =========================================================
+    st.markdown("---")
+    st.markdown("### 🚨 Action Required: Missing Limits")
+    st.markdown("The following colors do not have configured control limits but have enough data (≥ 3 batches). Please navigate to **🎛️ Control Limit Calculator** (View 3) to configure them.")
+    
+    # Lọc ra những màu chưa có Limit VÀ đã đủ dữ liệu để tính
+    pending_colors = summary_df[
+        (summary_df["Current Limits"] == "❌ No") & 
+        (summary_df["Ready for Calc (Total)"] == "✅ Yes")
+    ]
+    
+    if not pending_colors.empty:
+        st.warning(f"Found **{len(pending_colors)}** color(s) waiting for limit calculation:")
+        # Chỉ hiển thị các cột quan trọng cho gọn gàng
+        st.dataframe(
+            pending_colors[["Color Code", "Total Batches"]].reset_index(drop=True), 
+            use_container_width=False
+        )
+    else:
+        st.success("🎉 All colors with sufficient data already have their control limits configured!")
+
 
 # =========================================================
 # VIEW 3: CONTROL LIMIT CALCULATOR
@@ -820,6 +843,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
     
     # Hiển thị công thức minh hoạ (Tùy chọn)
     st.latex(r"\Delta E = \sqrt{\Delta L^2 + \Delta a^2 + \Delta b^2}")
+
 
 
 
