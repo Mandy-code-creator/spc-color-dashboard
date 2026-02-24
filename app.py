@@ -786,6 +786,37 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 else: 
                     st.error(f"**Method 2 (IQR)** ΔE UCL: **{dE_iqr:.3f}** (⚠️ > {limit_threshold})")
 
+# =========================================================
+    # MANUAL ΔE CALCULATOR (Bottom Section)
+    # =========================================================
+    st.markdown("---")
+    st.subheader("🧮 Manual ΔE Calculator")
+    st.markdown("Enter custom values for ΔL, Δa, and Δb to calculate the resulting overall color difference (ΔE).")
+    
+    # Tạo 3 cột để nhập liệu cho gọn gàng
+    col_ml, col_ma, col_mb = st.columns(3)
+    with col_ml:
+        man_L = st.number_input("Input ΔL value:", value=0.000, step=0.100, format="%.3f")
+    with col_ma:
+        man_a = st.number_input("Input Δa value:", value=0.000, step=0.100, format="%.3f")
+    with col_mb:
+        man_b = st.number_input("Input Δb value:", value=0.000, step=0.100, format="%.3f")
+        
+    # Tính toán ΔE bằng công thức hình học không gian
+    manual_dE = math.sqrt(man_L**2 + man_a**2 + man_b**2)
+    
+    # Lấy lại mốc limit_threshold đã xác định ở trên (dựa vào LINE hoặc LAB)
+    limit_threshold = 1.0 if calc_source.upper() == "LINE" else 0.5
+    
+    # Hiển thị kết quả với cảnh báo trực quan
+    st.markdown("#### **Calculation Result**")
+    if manual_dE <= limit_threshold:
+        st.success(f"### 🎯 Calculated ΔE: **{manual_dE:.3f}** (✅ Meets **{calc_source}** standard ≤ {limit_threshold})")
+    else:
+        st.error(f"### 🎯 Calculated ΔE: **{manual_dE:.3f}** (⚠️ Exceeds **{calc_source}** limit > {limit_threshold})")
+    
+    # Hiển thị công thức minh hoạ (Tùy chọn)
+    st.latex(r"\Delta E = \sqrt{\Delta L^2 + \Delta a^2 + \Delta b^2}")
 
 
 
