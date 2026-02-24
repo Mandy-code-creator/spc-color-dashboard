@@ -645,8 +645,8 @@ elif app_mode == "🎛️ Control Limit Calculator":
 
     if len(calc_res) == 3:
         dE_ucl = math.sqrt(dE_max_sq)
-        if dE_ucl <= 1.0: st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Đạt tiêu chuẩn ≤ 1.0)")
-        else: st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Vượt giới hạn > 1.0)")
+        if dE_ucl <= 1.0: st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Meets standard ≤ 1.0)")
+        else: st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Exceed the limit > 1.0)")
             
         st.markdown("---")
 
@@ -684,3 +684,4 @@ elif app_mode == "🎛️ Control Limit Calculator":
             st.markdown("---")
     else:
         st.warning("Not enough data (min 3 batches).")
+
