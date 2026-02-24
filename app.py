@@ -195,30 +195,11 @@ spc_data = calculate_batch_averages(df)
 
 # =========================================================
 # VIEW 1: MAIN DASHBOARD (BẢN FULL GỐC)
+# VIEW 1: MAIN DASHBOARD (BẢN FULL GỐC)
 # =========================================================
 if app_mode == "🚀 Main Dashboard":
 
-    st.markdown("### 🔎 Batch Summary (Before SPC Aggregation)")
-    if not df.empty:
-        batch_summary = (
-            df.groupby("製造批號", as_index=False)
-            .agg(
-                First_Time=("Time", "min"),
-                LAB_ΔL=("入料檢測 ΔL 正面", "mean"), LAB_Δa=("入料檢測 Δa 正面", "mean"), LAB_Δb=("入料檢測 Δb 正面", "mean"),
-                LINE_ΔL_N=("正-北 ΔL", "mean"), LINE_ΔL_S=("正-南 ΔL", "mean"),
-                LINE_Δa_N=("正-北 Δa", "mean"), LINE_Δa_S=("正-南 Δa", "mean"),
-                LINE_Δb_N=("正-北 Δb", "mean"), LINE_Δb_S=("正-南 Δb", "mean"),
-                Rows_in_Batch=("製造批號", "count")
-            ).sort_values("First_Time")
-        )
-        batch_summary["LINE_ΔL"] = batch_summary[["LINE_ΔL_N", "LINE_ΔL_S"]].mean(axis=1)
-        batch_summary["LINE_Δa"] = batch_summary[["LINE_Δa_N", "LINE_Δa_S"]].mean(axis=1)
-        batch_summary["LINE_Δb"] = batch_summary[["LINE_Δb_N", "LINE_Δb_S"]].mean(axis=1)
-        display_cols = ["製造批號", "First_Time", "LAB_ΔL", "LAB_Δa", "LAB_Δb", "LINE_ΔL", "LINE_Δa", "LINE_Δb", "Rows_in_Batch"]
-        st.dataframe(batch_summary[display_cols], use_container_width=True, hide_index=True)
-    else:
-        st.warning("No data after filtering.")
-        
+    # --- 1. SIDEBAR ELEMENTS ---
     st.sidebar.divider()
     if control_batch_code is not None:
         st.sidebar.info(f"🔔 **Control batch**\n\nBatch #{control_batch} → **{control_batch_code}**")
@@ -240,6 +221,7 @@ if app_mode == "🚀 Main Dashboard":
     show_limits("LAB")
     show_limits("LINE")
 
+    # --- 2. MAIN TITLES & HEADER INFO ---
     st.title("室內隔間用途－塗料入料管控專案")
     st.caption("Incoming Paint SPC · LAB / LINE · Phase II Monitoring")
     st.title(f"📊 SPC Color Dashboard — {color}")
@@ -255,7 +237,29 @@ if app_mode == "🚀 Main Dashboard":
 
     st.markdown(f"⏱ **{t_min} → {t_max} | n = {n_batch} batches | Year: {display_year} | Month: {display_month}**")
 
-    # Bảng Summary Statistics
+    # --- 3. COLLAPSIBLE BATCH SUMMARY ---
+    with st.expander("🔎 Batch Summary (Before SPC Aggregation)"):
+        if not df.empty:
+            batch_summary = (
+                df.groupby("製造批號", as_index=False)
+                .agg(
+                    First_Time=("Time", "min"),
+                    LAB_ΔL=("入料檢測 ΔL 正面", "mean"), LAB_Δa=("入料檢測 Δa 正面", "mean"), LAB_Δb=("入料檢測 Δb 正面", "mean"),
+                    LINE_ΔL_N=("正-北 ΔL", "mean"), LINE_ΔL_S=("正-南 ΔL", "mean"),
+                    LINE_Δa_N=("正-北 Δa", "mean"), LINE_Δa_S=("正-南 Δa", "mean"),
+                    LINE_Δb_N=("正-北 Δb", "mean"), LINE_Δb_S=("正-南 Δb", "mean"),
+                    Rows_in_Batch=("製造批號", "count")
+                ).sort_values("First_Time")
+            )
+            batch_summary["LINE_ΔL"] = batch_summary[["LINE_ΔL_N", "LINE_ΔL_S"]].mean(axis=1)
+            batch_summary["LINE_Δa"] = batch_summary[["LINE_Δa_N", "LINE_Δa_S"]].mean(axis=1)
+            batch_summary["LINE_Δb"] = batch_summary[["LINE_Δb_N", "LINE_Δb_S"]].mean(axis=1)
+            display_cols = ["製造批號", "First_Time", "LAB_ΔL", "LAB_Δa", "LAB_Δb", "LINE_ΔL", "LINE_Δa", "LINE_Δb", "Rows_in_Batch"]
+            st.dataframe(batch_summary[display_cols], use_container_width=True, hide_index=True)
+        else:
+            st.warning("No data after filtering.")
+
+    # --- 4. SUMMARY STATISTICS (Phần tiếp theo của code) ---
     summary_line, summary_lab = [], []
     for k in ["ΔL", "Δa", "Δb"]:
         line_values = spc_data[k]["line"]["value"].dropna()
@@ -264,7 +268,6 @@ if app_mode == "🚀 Main Dashboard":
         lab_values = spc_data[k]["lab"]["value"].dropna()
         if not lab_values.empty:
             summary_lab.append({"Factor": k, "Min": round(lab_values.min(), 2), "Max": round(lab_values.max(), 2), "Mean": round(lab_values.mean(), 2), "Std Dev": round(lab_values.std(), 2), "n": lab_values.count()})
-
     st.markdown("### 📋 Summary Statistics")
     col1, col2 = st.columns(2)
     with col1: st.markdown("#### 🏭 LINE"); st.dataframe(pd.DataFrame(summary_line), use_container_width=True, hide_index=True)
@@ -817,6 +820,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
     
     # Hiển thị công thức minh hoạ (Tùy chọn)
     st.latex(r"\Delta E = \sqrt{\Delta L^2 + \Delta a^2 + \Delta b^2}")
+
 
 
 
