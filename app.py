@@ -751,14 +751,18 @@ elif app_mode == "🎛️ Control Limit Calculator":
         else:
             st.warning(f"Not enough data for {f} (min 3 batches).")
 
-    # --- ĐIỀN KẾT QUẢ VÀO PLACEHOLDER Ở ĐẦU TRANG ---
+    # --- FILL RESULTS INTO PLACEHOLDER AT THE TOP ---
     if len(calc_res) == 3:
         dE_ucl = math.sqrt(dE_max_sq)
+        
+        # Set threshold based on Data Source
+        limit_threshold = 1.0 if calc_source.upper() == "LINE" else 0.5
+        
         with result_placeholder.container():
-            if dE_ucl <= 1.0: 
-                st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Meets standard ≤ 1.0)")
+            if dE_ucl <= limit_threshold: 
+                st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Meets standard ≤ {limit_threshold})")
             else: 
-                st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Exceed the limit > 1.0)")
+                st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Exceeds the limit > {limit_threshold})")
 
 
 
