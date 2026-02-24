@@ -509,9 +509,7 @@ if app_mode == "🚀 Main Dashboard":
                             ax.set_xlabel("Average Thickness (per Coil)"); ax.set_ylabel(factor_label); ax.legend(); ax.grid(True, linestyle="--", alpha=0.4); st.pyplot(fig)
 
                             st.markdown("### 🧠 Interpretation")
-                            st.markdown("### 🧠 Interpretation")
-                            
-                            # --- CORRELATION REFERENCE TABLE ---
+                             # --- CORRELATION REFERENCE TABLE ---
                             st.markdown("""
                             **📊 Correlation Levels Reference:**
                             
@@ -709,6 +707,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Meets standard ≤ 1.0)")
             else: 
                 st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Exceed the limit > 1.0)")
+
 
 
 
