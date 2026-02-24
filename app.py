@@ -611,28 +611,33 @@ elif app_mode == "🎛️ Control Limit Calculator":
     
     st.title("🎛️ Control Limits Analysis & Derived ΔE")
     
-    with st.expander("⚙️ 設定參數 (Settings)", expanded=True):
-        st.markdown("**Chọn nguồn dữ liệu & Tùy chỉnh tham số riêng:**")
+    with st.expander("⚙️ Nguồn dữ liệu (Data Source)", expanded=True):
+        st.markdown("**Chọn nguồn dữ liệu:**")
         calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True)
-        st.divider()
-        cols = st.columns(3)
-        factors = ["ΔL", "Δa", "Δb"]
-        sig_dict, iqr_dict = {}, {}
         
-        for i, f in enumerate(factors):
-            with cols[i]:
-                st.markdown(f"🔸 **{f}**")
-                sig_dict[f] = st.number_input(f"Sigma (K)", value=3.0, step=0.1, key=f"sig_{f}")
-                iqr_dict[f] = st.number_input(f"IQR Sens.", value=1.5, step=0.1, key=f"iqr_{f}")
+    # Tạo một placeholder để đẩy kết quả tính toán tổng (Target Derived ΔE UCL) lên đầu trang
+    result_placeholder = st.empty()
+    st.markdown("---")
 
+    factors = ["ΔL", "Δa", "Δb"]
     calc_res, dE_max_sq = {}, 0
+
     for f in factors:
+        st.markdown(f"### 📊 Analysis: **{f}** ({calc_source})")
+        
+        # --- TÁCH RIÊNG THIẾT LẬP THAM SỐ CHO TỪNG YẾU TỐ ---
+        col_sig, col_iqr = st.columns(2)
+        with col_sig:
+            sig = st.number_input(f"🔸 Sigma (K) cho {f}", value=3.0, step=0.1, key=f"sig_{f}")
+        with col_iqr:
+            iqr_k = st.number_input(f"🔸 IQR Sens. cho {f}", value=1.5, step=0.1, key=f"iqr_{f}")
+        
         d = spc_data[f][calc_source.lower()]["value"]
+        
         if len(d) >= 3:
             m, s = d.mean(), d.std()
             q1, q3 = d.quantile(0.25), d.quantile(0.75)
             olcl, oucl = safe_get_limit(color, calc_source, f)
-            sig, iqr_k = sig_dict[f], iqr_dict[f]
             
             std_lcl, std_ucl = m - sig*s, m + sig*s
             iqr_lcl, iqr_ucl = q1 - iqr_k*(q3-q1), q3 + iqr_k*(q3-q1)
@@ -643,15 +648,6 @@ elif app_mode == "🎛️ Control Limit Calculator":
             }
             dE_max_sq += max(abs(std_lcl), abs(std_ucl))**2
 
-    if len(calc_res) == 3:
-        dE_ucl = math.sqrt(dE_max_sq)
-        if dE_ucl <= 1.0: st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Meets standard ≤ 1.0)")
-        else: st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Exceed the limit > 1.0)")
-            
-        st.markdown("---")
-
-        for f in factors:
-            st.markdown(f"### 📊 Analysis: **{f}** ({calc_source})")
             col_chart, col_table = st.columns([2.2, 1])
             res = calc_res[f]
             
@@ -682,6 +678,16 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 plt.xticks(rotation=45); fig.subplots_adjust(right=0.75, bottom=0.2)
                 st.pyplot(fig); plt.close(fig)
             st.markdown("---")
-    else:
-        st.warning("Not enough data (min 3 batches).")
+        else:
+            st.warning(f"Not enough data for {f} (min 3 batches).")
+
+    # --- ĐIỀN KẾT QUẢ VÀO PLACEHOLDER Ở ĐẦU TRANG ---
+    if len(calc_res) == 3:
+        dE_ucl = math.sqrt(dE_max_sq)
+        with result_placeholder.container():
+            if dE_ucl <= 1.0: 
+                st.success(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (✅ Meets standard ≤ 1.0)")
+            else: 
+                st.error(f"### 🎯 Target Derived ΔE UCL: **{dE_ucl:.3f}** (⚠️ Exceed the limit > 1.0)")
+
 
