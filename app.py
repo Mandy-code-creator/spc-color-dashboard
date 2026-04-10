@@ -7,6 +7,7 @@ import math
 import re
 import docx
 from docx.shared import Inches
+from datetime import datetime # Sửa dứt điểm lỗi NameError
 
 # =========================
 # PAGE CONFIG
@@ -169,7 +170,7 @@ def calculate_batch_averages(df_filtered_color):
 st.sidebar.markdown("### 📊 View Mode")
 app_mode = st.sidebar.radio(
     "Select View Mode",
-    ["🚀 Main Dashboard", "📋 Limit Status Summary", "🎛️ Control Limit Calculator","🔬 Lab vs Line Scale-up"],
+    ["🚀 Main Dashboard", "📋 Limit Status Summary", "🎛️ Control Limit Calculator","🔬 Lab vs Line Scale-up","📄 AI OOC Word Report"], 
     label_visibility="collapsed"
 )
 
@@ -1166,7 +1167,134 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
                     
                     st.pyplot(fig)
                     plt.close(fig)
+# =========================================================
+# VIEW 6: AI OOC WORD REPORT GENERATOR
+# =========================================================
+elif app_mode == "📄 AI OOC Word Report":
+    st.title("📄 AI Automated OOC Report Generator")
+    st.markdown("Hệ thống sẽ quét **TẤT CẢ** các mã màu đang có giới hạn kiểm soát (Phase II) để tìm ra các lô hàng vi phạm (Out-Of-Control). Sau đó, AI sẽ tự động đóng gói dữ liệu và biểu đồ vào một file Word hoàn chỉnh.")
 
+    if st.button("🚀 Chạy quét hệ thống & Tạo báo cáo Word", type="primary"):
+        with st.spinner("🔍 Đang quét toàn bộ hệ thống và tạo biểu đồ... Quá trình này có thể mất khoảng 10-30 giây."):
+            all_colors = sorted(df_raw["塗料編號"].dropna().unique())
+            master_ooc_rows = []
+            report_data_dict = {} # Lưu tạm dữ liệu để vẽ biểu đồ cho file Word
+
+            # 1. QUÉT TOÀN BỘ MÃ MÀU
+            for c in all_colors:
+                c_clean = str(c).strip()
+                mask = limit_df["Color_code"].astype(str).str.strip() == c_clean
+                row = limit_df[mask]
+                
+                # Bỏ qua nếu mã màu chưa được cấu hình Limits
+                if row.empty: continue
+                limit_cols = [col for col in row.columns if "LCL" in col or "UCL" in col]
+                if row[limit_cols].isna().all().all(): continue
+
+                df_c = df_raw[df_raw["塗料編號"] == c].copy()
+                cb = get_control_batch(c)
+                cb_code = get_control_batch_code(df_c, cb)
+
+                if cb_code is None: continue # Bỏ qua nếu chưa sang Phase II
+
+                spc_c = calculate_batch_averages(df_c)
+                color_has_ooc = False
+
+                for k in ["ΔL", "Δa", "Δb"]:
+                    # Kiểm tra LINE
+                    lcl, ucl = safe_get_limit(c, "LINE", k)
+                    if lcl is not None and ucl is not None:
+                        line_phase2 = spc_c[k]["line"][spc_c[k]["line"]["製造批號"] >= cb_code]
+                        ooc_line = detect_out_of_control(line_phase2, lcl, ucl)
+                        for _, r in ooc_line.iterrows():
+                            master_ooc_rows.append({"Color": c, "Factor": k, "Type": "LINE", "Batch": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
+                            color_has_ooc = True
+
+                    # Kiểm tra LAB
+                    lcl, ucl = safe_get_limit(c, "LAB", k)
+                    if lcl is not None and ucl is not None:
+                        lab_phase2 = spc_c[k]["lab"][spc_c[k]["lab"]["製造批號"] >= cb_code]
+                        ooc_lab = detect_out_of_control(lab_phase2, lcl, ucl)
+                        for _, r in ooc_lab.iterrows():
+                            master_ooc_rows.append({"Color": c, "Factor": k, "Type": "LAB", "Batch": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
+                            color_has_ooc = True
+
+                # Nếu mã màu này có lỗi, lưu lại data để lát vẽ biểu đồ
+                if color_has_ooc:
+                    report_data_dict[c] = {"spc": spc_c, "cb_code": cb_code}
+
+            # 2. XỬ LÝ KẾT QUẢ VÀ TẠO WORD
+            if not master_ooc_rows:
+                st.success("✅ Tuyệt vời! Hệ thống không phát hiện bất kỳ cuộn nào vi phạm giới hạn kiểm soát.")
+            else:
+                df_master_ooc = pd.DataFrame(master_ooc_rows)
+                st.warning(f"⚠️ Phát hiện **{len(df_master_ooc)}** cảnh báo OOC trên **{len(report_data_dict)}** mã màu khác nhau.")
+                st.dataframe(df_master_ooc, use_container_width=True)
+
+                # Bắt đầu tạo file Word
+                doc = docx.Document()
+                doc.add_heading('System-Wide Out-of-Control (OOC) Report', 0)
+                doc.add_paragraph(f'Report generated on: {datetime.now().strftime("%Y-%m-%d %H:%M")}')
+                doc.add_paragraph(f'Total OOC Instances: {len(df_master_ooc)}')
+                doc.add_page_break()
+
+                # In dữ liệu cho từng màu
+                for color_name, data in report_data_dict.items():
+                    doc.add_heading(f'Color Code: {color_name}', level=1)
+                    color_ooc = df_master_ooc[df_master_ooc["Color"] == color_name]
+
+                    for factor in ["ΔL", "Δa", "Δb"]:
+                        factor_ooc = color_ooc[color_ooc["Factor"] == factor]
+                        if not factor_ooc.empty:
+                            doc.add_heading(f'Factor: {factor}', level=2)
+
+                            # Tạo bảng
+                            table = doc.add_table(rows=1, cols=4)
+                            table.style = 'Table Grid'
+                            hdr = table.rows[0].cells
+                            hdr[0].text, hdr[1].text, hdr[2].text, hdr[3].text = 'Type', 'Batch No.', 'Value', 'Violated Rule'
+
+                            for _, r in factor_ooc.iterrows():
+                                row_cells = table.add_row().cells
+                                row_cells[0].text = str(r["Type"])
+                                row_cells[1].text = str(r["Batch"])
+                                val = float(r["Value"])
+                                row_cells[2].text = str(int(val)) if val.is_integer() else str(val)
+                                
+                                rules = []
+                                if r["Rule_CL"]: rules.append("Control Limit")
+                                if r["Rule_3Sigma"]: rules.append("3-Sigma")
+                                row_cells[3].text = " + ".join(rules)
+
+                            doc.add_paragraph("\nControl Chart Reference:")
+
+                            # Tạo biểu đồ và nhúng vào Word
+                            lab_lim = safe_get_limit(color_name, "LAB", factor)
+                            line_lim = safe_get_limit(color_name, "LINE", factor)
+                            cb_code = data["cb_code"]
+                            spc_c = data["spc"]
+
+                            fig = spc_combined(spc_c[factor]["lab"], spc_c[factor]["line"], f"{color_name} - COMBINED {factor}", lab_lim, line_lim, cb_code)
+                            img_buf = io.BytesIO()
+                            fig.savefig(img_buf, format='png', dpi=150, bbox_inches='tight')
+                            img_buf.seek(0)
+                            doc.add_picture(img_buf, width=Inches(6.0))
+                            plt.close(fig) # Tránh tràn RAM
+
+                    doc.add_page_break()
+
+                # Lưu vào bộ nhớ đệm để tải về
+                report_buf = io.BytesIO()
+                doc.save(report_buf)
+                report_buf.seek(0)
+
+                st.success("✅ File Word đã được AI tổng hợp xong!")
+                st.download_button(
+                    label="📥 Tải xuống Báo cáo Word Toàn hệ thống",
+                    data=report_buf,
+                    file_name=f"System_OOC_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
 
 
 
