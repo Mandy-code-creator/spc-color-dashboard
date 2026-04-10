@@ -1044,14 +1044,15 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
                     plt.close(fig)
 
 # =========================================================
-# VIEW 5: AI OOC WORD REPORT GENERATOR
+# =========================================================
+# VIEW 6: AI OOC WORD REPORT GENERATOR
 # =========================================================
 elif app_mode == "📄 AI OOC Word Report":
     st.title("📄 AI Automated OOC Report Generator")
-    st.markdown("The system will scan **ALL** color codes with active control limits (Phase II) to find Out-Of-Control batches. The AI will then automatically package the data and charts into a comprehensive Word report.")
+    st.markdown("The system will scan **ALL** color codes with active control limits (Phase II) to find Out-Of-Control batches. The AI will then automatically package the data, current limits, charts, and corrective recommendations into a comprehensive Word report.")
 
     if st.button("🚀 Run System Scan & Generate Word Report", type="primary"):
-        with st.spinner("🔍 Scanning the entire system and generating charts... This may take 10-30 seconds."):
+        with st.spinner("🔍 Scanning the entire system and generating analytical insights... This may take 10-30 seconds."):
             all_colors = sorted(df_raw["塗料編號"].dropna().unique())
             master_ooc_rows = []
             report_data_dict = {} 
@@ -1062,7 +1063,6 @@ elif app_mode == "📄 AI OOC Word Report":
                 mask = limit_df["Color_code"].astype(str).str.strip() == c_clean
                 row = limit_df[mask]
                 
-                # Skip if color code lacks configured limits
                 if row.empty: continue
                 limit_cols = [col for col in row.columns if "LCL" in col or "UCL" in col]
                 if row[limit_cols].isna().all().all(): continue
@@ -1071,31 +1071,28 @@ elif app_mode == "📄 AI OOC Word Report":
                 cb = get_control_batch(c)
                 cb_code = get_control_batch_code(df_c, cb)
 
-                if cb_code is None: continue # Skip if not in Phase II
+                if cb_code is None: continue
 
                 spc_c = calculate_batch_averages(df_c)
                 color_has_ooc = False
 
                 for k in ["ΔL", "Δa", "Δb"]:
-                    # Check LINE
-                    lcl, ucl = safe_get_limit(c, "LINE", k)
-                    if lcl is not None and ucl is not None:
+                    lcl_line, ucl_line = safe_get_limit(c, "LINE", k)
+                    if lcl_line is not None and ucl_line is not None:
                         line_phase2 = spc_c[k]["line"][spc_c[k]["line"]["製造批號"] >= cb_code]
-                        ooc_line = detect_out_of_control(line_phase2, lcl, ucl)
+                        ooc_line = detect_out_of_control(line_phase2, lcl_line, ucl_line)
                         for _, r in ooc_line.iterrows():
                             master_ooc_rows.append({"Color": c, "Factor": k, "Type": "LINE", "Batch": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
                             color_has_ooc = True
 
-                    # Check LAB
-                    lcl, ucl = safe_get_limit(c, "LAB", k)
-                    if lcl is not None and ucl is not None:
+                    lcl_lab, ucl_lab = safe_get_limit(c, "LAB", k)
+                    if lcl_lab is not None and ucl_lab is not None:
                         lab_phase2 = spc_c[k]["lab"][spc_c[k]["lab"]["製造批號"] >= cb_code]
-                        ooc_lab = detect_out_of_control(lab_phase2, lcl, ucl)
+                        ooc_lab = detect_out_of_control(lab_phase2, lcl_lab, ucl_lab)
                         for _, r in ooc_lab.iterrows():
                             master_ooc_rows.append({"Color": c, "Factor": k, "Type": "LAB", "Batch": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
                             color_has_ooc = True
 
-                # If this color has errors, save data to plot chart later
                 if color_has_ooc:
                     report_data_dict[c] = {"spc": spc_c, "cb_code": cb_code}
 
@@ -1106,6 +1103,36 @@ elif app_mode == "📄 AI OOC Word Report":
                 df_master_ooc = pd.DataFrame(master_ooc_rows)
                 st.warning(f"⚠️ Detected **{len(df_master_ooc)}** OOC alerts across **{len(report_data_dict)}** different color codes.")
                 st.dataframe(df_master_ooc, use_container_width=True)
+
+                # Helper Function: Generate AI Insights
+                def generate_ai_insights(factor, factor_ooc, line_lim):
+                    avg_val = factor_ooc["Value"].astype(float).mean()
+                    
+                    color_shift = "Unknown"
+                    if factor == "ΔL": color_shift = "Lighter (White)" if avg_val > 0 else "Darker (Black)"
+                    elif factor == "Δa": color_shift = "Redder" if avg_val > 0 else "Greener"
+                    elif factor == "Δb": color_shift = "Yellower" if avg_val > 0 else "Bluer"
+                    
+                    direction = "upper"
+                    if line_lim[1] is not None and avg_val > line_lim[1]: direction = "upper"
+                    elif line_lim[0] is not None and avg_val < line_lim[0]: direction = "lower"
+                    
+                    # Analysis text
+                    analysis = f"Statistical analysis indicates that the '{factor}' factor exhibits a significant deviation towards the {direction} control limit, resulting in a '{color_shift}' visual shift on the production line. A total of {len(factor_ooc)} recent batches violated stability rules. "
+                    
+                    has_3sigma = any(factor_ooc["Rule_3Sigma"] == True)
+                    if has_3sigma:
+                        analysis += "The presence of 3-Sigma (fluctuation) violations indicates an unstable process variation, likely caused by inconsistent machine parameters or uneven film thickness."
+                    else:
+                        analysis += "The violations are strictly Control Limit breaches, suggesting a systematic mean shift in the baseline formulation."
+                        
+                    # Corrective Actions
+                    actions = (
+                        f"1. Formulation Adjustment: Request the Lab to apply a counter-offset to the baseline formula to mitigate the '{color_shift}' drift.\n"
+                        f"2. Process Audit: Verify film thickness consistency on the production line, as thickness variations strongly correlate with {factor} drifts.\n"
+                        f"3. Material Traceability: Isolate and inspect the raw material lots used in the highlighted OOC batches for potential contamination."
+                    )
+                    return analysis, actions
 
                 # Start creating Word file
                 doc = docx.Document()
@@ -1120,7 +1147,7 @@ elif app_mode == "📄 AI OOC Word Report":
                     color_ooc = df_master_ooc[df_master_ooc["Color"] == color_name]
 
                     def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code):
-                        fig, ax = plt.subplots(figsize=(12, 4))
+                        fig, ax = plt.subplots(figsize=(10, 4))
                         ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
                         ax.plot(line["製造批號"], line["value"], "o-", label="LINE", color="#2ca02c")
                         if control_batch_code is not None:
@@ -1142,7 +1169,18 @@ elif app_mode == "📄 AI OOC Word Report":
                         if not factor_ooc.empty:
                             doc.add_heading(f'Factor: {factor}', level=2)
 
-                            # Create table
+                            lab_lim = safe_get_limit(color_name, "LAB", factor)
+                            line_lim = safe_get_limit(color_name, "LINE", factor)
+
+                            # 1. Print Current Limits
+                            lab_str = f"[{lab_lim[0]:.2f} ~ {lab_lim[1]:.2f}]" if lab_lim[0] is not None else "Not Configured"
+                            line_str = f"[{line_lim[0]:.2f} ~ {line_lim[1]:.2f}]" if line_lim[0] is not None else "Not Configured"
+                            
+                            limit_p = doc.add_paragraph()
+                            limit_p.add_run("📌 Current Control Limits (Spec):\n").bold = True
+                            limit_p.add_run(f"   • LAB Target: {lab_str}\n   • LINE Target: {line_str}")
+
+                            # 2. Print Table
                             table = doc.add_table(rows=1, cols=4)
                             table.style = 'Table Grid'
                             hdr = table.rows[0].cells
@@ -1160,11 +1198,9 @@ elif app_mode == "📄 AI OOC Word Report":
                                 if r["Rule_3Sigma"]: rules.append("3-Sigma")
                                 row_cells[3].text = " + ".join(rules)
 
-                            doc.add_paragraph("\nControl Chart Reference:")
+                            doc.add_paragraph("\n📈 Control Chart Reference:")
 
-                            # Create chart and embed in Word
-                            lab_lim = safe_get_limit(color_name, "LAB", factor)
-                            line_lim = safe_get_limit(color_name, "LINE", factor)
+                            # 3. Create chart and embed
                             cb_code = data["cb_code"]
                             spc_c = data["spc"]
 
@@ -1173,7 +1209,16 @@ elif app_mode == "📄 AI OOC Word Report":
                             fig.savefig(img_buf, format='png', dpi=150, bbox_inches='tight')
                             img_buf.seek(0)
                             doc.add_picture(img_buf, width=Inches(6.0))
-                            plt.close(fig) # Prevent RAM overflow
+                            plt.close(fig)
+
+                            # 4. AI Insights & Actions
+                            analysis_text, action_text = generate_ai_insights(factor, factor_ooc, line_lim)
+                            
+                            doc.add_heading('🤖 AI Process Analysis', level=3)
+                            doc.add_paragraph(analysis_text)
+                            
+                            doc.add_heading('🛠️ Recommended Corrective Actions', level=3)
+                            doc.add_paragraph(action_text)
 
                     doc.add_page_break()
 
@@ -1182,7 +1227,7 @@ elif app_mode == "📄 AI OOC Word Report":
                 doc.save(report_buf)
                 report_buf.seek(0)
 
-                st.success("✅ Word file successfully compiled by AI!")
+                st.success("✅ Word file successfully compiled with AI Insights!")
                 st.download_button(
                     label="📥 Download System-Wide Word Report",
                     data=report_buf,
