@@ -5,6 +5,8 @@ import io
 import numpy as np
 import math
 import re
+import docx
+from docx.shared import Inches
 
 # =========================
 # PAGE CONFIG
@@ -385,19 +387,104 @@ if app_mode == "🚀 Main Dashboard":
     # Section: OOC TABLE
     st.markdown("## 🚨 Out-of-Control Batches")
     ooc_rows = []
+    
     for k in ["ΔL", "Δa", "Δb"]:
         lcl, ucl = safe_get_limit(color, "LINE", k)
         if control_batch_code is not None:
             line_phase2 = spc_data[k]["line"][spc_data[k]["line"]["製造批號"] >= control_batch_code]
             ooc_line = detect_out_of_control(line_phase2, lcl, ucl)
-            for _, r in ooc_line.iterrows(): ooc_rows.append({"Factor": k, "Type": "LINE", "製造批號": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
+            for _, r in ooc_line.iterrows(): 
+                ooc_rows.append({"Factor": k, "Type": "LINE", "製造批號": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
+        
         lcl, ucl = safe_get_limit(color, "LAB", k)
         if control_batch_code is not None:
             lab_phase2 = spc_data[k]["lab"][spc_data[k]["lab"]["製造批號"] >= control_batch_code]
             ooc_lab = detect_out_of_control(lab_phase2, lcl, ucl)
-            for _, r in ooc_lab.iterrows(): ooc_rows.append({"Factor": k, "Type": "LAB", "製造批號": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
-    if ooc_rows: st.dataframe(pd.DataFrame(ooc_rows), use_container_width=True)
-    else: st.success("✅ No out-of-control batches detected")
+            for _, r in ooc_lab.iterrows(): 
+                ooc_rows.append({"Factor": k, "Type": "LAB", "製造批號": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
+    
+    if ooc_rows: 
+        ooc_df = pd.DataFrame(ooc_rows)
+        st.dataframe(ooc_df, use_container_width=True)
+
+        # ==========================================
+        # XUẤT BÁO CÁO WORD (OOC REPORT)
+        # ==========================================
+        st.markdown("### 📄 Xuất báo cáo OOC (Word)")
+        st.caption("Báo cáo sẽ bao gồm bảng chi tiết các cuộn vi phạm và biểu đồ SPC tương ứng.")
+
+        def create_ooc_word_report(color_name, df_ooc, spc_dict, batch_code):
+            doc = docx.Document()
+            doc.add_heading(f'OOC Report - Color: {color_name}', 0)
+            doc.add_paragraph(f'Report generated on: {datetime.now().strftime("%Y-%m-%d %H:%M")}')
+
+            for factor in ["ΔL", "Δa", "Δb"]:
+                df_factor = df_ooc[df_ooc["Factor"] == factor]
+                if not df_factor.empty:
+                    doc.add_heading(f'Factor: {factor}', level=1)
+
+                    # 1. Vẽ Bảng Dữ liệu
+                    table = doc.add_table(rows=1, cols=4)
+                    table.style = 'Table Grid'
+                    hdr_cells = table.rows[0].cells
+                    hdr_cells[0].text = 'Type (LAB/LINE)'
+                    hdr_cells[1].text = 'Batch No.'
+                    hdr_cells[2].text = 'Value'
+                    hdr_cells[3].text = 'Violated Rule'
+
+                    for _, r in df_factor.iterrows():
+                        row_cells = table.add_row().cells
+                        row_cells[0].text = str(r["Type"])
+                        row_cells[1].text = str(r["製造批號"])
+                        
+                        # Định dạng số: Lấy 2 chữ số thập phân, nếu .00 thì lược bỏ thành số nguyên
+                        val = float(r["Value"])
+                        val_rounded = round(val, 2)
+                        row_cells[2].text = str(int(val_rounded)) if val_rounded.is_integer() else str(val_rounded)
+
+                        # Xác định lỗi vi phạm
+                        rules = []
+                        if r["Rule_CL"]: rules.append("Control Limit")
+                        if r["Rule_3Sigma"]: rules.append("3-Sigma")
+                        row_cells[3].text = " + ".join(rules)
+
+                    doc.add_paragraph("\nControl Chart Reference:")
+
+                    # 2. Chèn Hình ảnh Biểu đồ
+                    lab_lim = safe_get_limit(color_name, "LAB", factor)
+                    line_lim = safe_get_limit(color_name, "LINE", factor)
+                    
+                    # Tái sử dụng hàm vẽ biểu đồ có sẵn của bạn
+                    fig = spc_combined(spc_dict[factor]["lab"], spc_dict[factor]["line"], f"COMBINED {factor}", lab_lim, line_lim, batch_code)
+                    
+                    # Lưu biểu đồ vào bộ nhớ đệm (BytesIO) thay vì lưu ra file vật lý
+                    img_buf = io.BytesIO()
+                    fig.savefig(img_buf, format='png', dpi=150, bbox_inches='tight')
+                    img_buf.seek(0)
+                    
+                    # Chèn vào Word với chiều ngang 6 inches
+                    doc.add_picture(img_buf, width=Inches(6.0))
+                    plt.close(fig) # Đóng figure để giải phóng bộ nhớ
+
+                    doc.add_page_break()
+
+            # Lưu file Word vào bộ nhớ đệm để tải xuống
+            report_buf = io.BytesIO()
+            doc.save(report_buf)
+            report_buf.seek(0)
+            return report_buf
+
+        # Tạo nút tải xuống
+        word_buffer = create_ooc_word_report(color, ooc_df, spc_data, control_batch_code)
+        st.download_button(
+            label=f"📥 Tải xuống Báo cáo OOC (.docx)",
+            data=word_buffer,
+            file_name=f"OOC_Report_{color}_{datetime.now().strftime('%Y%m%d')}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+
+    else: 
+        st.success("✅ No out-of-control batches detected")
 
    # Section: THICKNESS CORRELATION
     st.markdown("---")
