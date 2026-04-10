@@ -204,7 +204,6 @@ spc_data = calculate_batch_averages(df)
 # =========================================================
 if app_mode == "🚀 Main Dashboard":
 
-    # --- 1. SIDEBAR ELEMENTS ---
     st.sidebar.divider()
     if control_batch_code is not None:
         st.sidebar.info(f"🔔 **Control batch**\n\nBatch #{control_batch} → **{control_batch_code}**")
@@ -212,7 +211,6 @@ if app_mode == "🚀 Main Dashboard":
         st.sidebar.warning(f"⚠ Control batch #{control_batch} exceeds available batches")
     st.sidebar.divider()
 
-    # Limit Sheet table in Sidebar
     def show_limits(factor):
         c_search = str(color).strip().upper()
         mask = limit_df["Color_code"].astype(str).str.strip().str.upper() == c_search
@@ -226,7 +224,6 @@ if app_mode == "🚀 Main Dashboard":
     show_limits("LAB")
     show_limits("LINE")
 
-    # --- 2. MAIN TITLES & HEADER INFO ---
     st.title("室內隔間用途－塗料入料管控專案")
     st.caption("Incoming Paint SPC · LAB / LINE · Phase II Monitoring")
     st.title(f"📊 SPC Color Dashboard — {color}")
@@ -242,7 +239,6 @@ if app_mode == "🚀 Main Dashboard":
 
     st.markdown(f"⏱ **{t_min} → {t_max} | n = {n_batch} batches | Year: {display_year} | Month: {display_month}**")
 
-    # --- 3. COLLAPSIBLE BATCH SUMMARY ---
     with st.expander("🔎 Batch Summary (Before SPC Aggregation)"):
         if not df.empty:
             batch_summary = (
@@ -264,7 +260,6 @@ if app_mode == "🚀 Main Dashboard":
         else:
             st.warning("No data after filtering.")
 
-    # --- 4. SUMMARY STATISTICS ---
     summary_line, summary_lab = [], []
     for k in ["ΔL", "Δa", "Δb"]:
         line_values = spc_data[k]["line"]["value"].dropna()
@@ -278,49 +273,87 @@ if app_mode == "🚀 Main Dashboard":
     with col1: st.markdown("#### 🏭 LINE"); st.dataframe(pd.DataFrame(summary_line), use_container_width=True, hide_index=True)
     with col2: st.markdown("#### 🧪 LAB"); st.dataframe(pd.DataFrame(summary_lab), use_container_width=True, hide_index=True)
 
-    # Chart plotting functions
+    # Professional Chart Plotting Functions
     def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code):
-        fig, ax = plt.subplots(figsize=(12, 4))
-        ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
-        ax.plot(line["製造批號"], line["value"], "o-", label="LINE", color="#2ca02c")
+        fig, ax = plt.subplots(figsize=(12, 5))
+        ax.set_facecolor('#f2f2f2')
+
+        ax.plot(lab["製造批號"], lab["value"], marker="^", color="#548235", linestyle="-", linewidth=1.5, markersize=8, label="LAB Input")
+        ax.plot(line["製造批號"], line["value"], marker="o", color="#ffc000", linestyle="-", linewidth=1.5, markersize=8, markerfacecolor="white", markeredgewidth=2, label="LINE Output")
+
+        import matplotlib.transforms as transforms
+        trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+
         if control_batch_code is not None:
-            ax.axvline(x=control_batch_code, color="#b22222", linestyle="--", linewidth=1.5)
-            ax.text(control_batch_code, ax.get_ylim()[1] * 0.97, "Phase II", color="#b22222", fontsize=9, ha="center", va="top")
+            ax.axvline(x=control_batch_code, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
+            ax.text(control_batch_code, 1.02, "  After Control", color="#0070c0", fontsize=14, ha="left", va="bottom", transform=trans)
+            ax.text(control_batch_code, 1.02, "Before Control  ", color="#0070c0", fontsize=14, ha="right", va="bottom", transform=trans)
+
         if lab_lim[0] is not None and lab_lim[1] is not None:
             out_lab = (lab["value"] > lab_lim[1]) | (lab["value"] < lab_lim[0])
-            ax.scatter(lab["製造批號"][out_lab], lab["value"][out_lab], color="red", s=80, zorder=5)
+            ax.plot(lab["製造批號"][out_lab], lab["value"][out_lab], marker="^", color="red", linestyle="None", markersize=10, zorder=5)
+        
         if line_lim[0] is not None and line_lim[1] is not None:
             out_line = (line["value"] > line_lim[1]) | (line["value"] < line_lim[0])
-            ax.scatter(line["製造批號"][out_line], line["value"][out_line], color="red", s=80, zorder=5)
-        if lab_lim[0] is not None: ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":", label="LAB LCL"); ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":", label="LAB UCL")
-        if line_lim[0] is not None: ax.axhline(line_lim[0], color="red", label="LINE LCL"); ax.axhline(line_lim[1], color="red", label="LINE UCL")
-        ax.set_title(title); ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left"); ax.grid(True); ax.tick_params(axis="x", rotation=45); fig.subplots_adjust(right=0.78)
+            ax.plot(line["製造批號"][out_line], line["value"][out_line], marker="o", color="red", linestyle="None", markersize=10, zorder=5)
+
+        if lab_lim[0] is not None: 
+            ax.axhline(lab_lim[0], color="#7030a0", linestyle="-", linewidth=2, label="LAB LCL")
+            ax.axhline(lab_lim[1], color="#7030a0", linestyle="-", linewidth=2, label="LAB UCL")
+        if line_lim[0] is not None: 
+            ax.axhline(line_lim[0], color="#ff0000", linestyle="--", linewidth=2, label="LINE LCL")
+            ax.axhline(line_lim[1], color="#ff0000", linestyle="--", linewidth=2, label="LINE UCL")
+
+        ax.set_title(title, fontsize=15, fontweight="bold", pad=25)
+        ax.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
+        ax.grid(axis="x", visible=False)
+        ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
+        ax.tick_params(axis="x", rotation=45)
+        fig.subplots_adjust(right=0.8, top=0.8) 
         return fig
 
     def spc_combined_phase2(lab, line, title, lab_lim, line_lim, control_batch_code):
         if control_batch_code is None: return None
         lab2 = lab[lab["製造批號"] >= control_batch_code]; line2 = line[line["製造批號"] >= control_batch_code]
         if lab2.empty and line2.empty: return None
-        fig, ax = plt.subplots(figsize=(12, 4))
-        if not lab2.empty: ax.plot(lab2["製造批號"], lab2["value"], "o-", label="LAB", color="#1f77b4")
-        if not line2.empty: ax.plot(line2["製造批號"], line2["value"], "o-", label="LINE", color="#2ca02c")
+        
+        fig, ax = plt.subplots(figsize=(12, 5))
+        ax.set_facecolor('#f2f2f2')
+
+        if not lab2.empty: ax.plot(lab2["製造批號"], lab2["value"], marker="^", color="#548235", linestyle="-", linewidth=1.5, markersize=8, label="LAB Input")
+        if not line2.empty: ax.plot(line2["製造批號"], line2["value"], marker="o", color="#ffc000", linestyle="-", linewidth=1.5, markersize=8, markerfacecolor="white", markeredgewidth=2, label="LINE Output")
+
+        import matplotlib.transforms as transforms
+        trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+        ax.axvline(x=control_batch_code, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
+        ax.text(control_batch_code, 1.02, "  After Control (Phase II)", color="#0070c0", fontsize=14, ha="left", va="bottom", transform=trans)
+
         if not lab2.empty and lab_lim[0] is not None:
             out = (lab2["value"] < lab_lim[0]) | (lab2["value"] > lab_lim[1])
-            ax.scatter(lab2["製造批號"][out], lab2["value"][out], color="red", s=90, zorder=6)
+            ax.plot(lab2["製造批號"][out], lab2["value"][out], marker="^", color="red", linestyle="None", markersize=10, zorder=6)
         if not line2.empty and line_lim[0] is not None:
             out = (line2["value"] < line_lim[0]) | (line2["value"] > line_lim[1])
-            ax.scatter(line2["製造批號"][out], line2["value"][out], color="red", s=90, zorder=6)
-        ax.axvline(x=control_batch_code, color="#b22222", linestyle="--", linewidth=1.5, label="Phase II start")
-        if lab_lim[0] is not None: ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":", label="LAB LCL"); ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":", label="LAB UCL")
-        if line_lim[0] is not None: ax.axhline(line_lim[0], color="red", label="LINE LCL"); ax.axhline(line_lim[1], color="red", label="LINE UCL")
-        ax.set_title(title); ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left"); ax.grid(True); ax.tick_params(axis="x", rotation=45); fig.subplots_adjust(right=0.78)
+            ax.plot(line2["製造批號"][out], line2["value"][out], marker="o", color="red", linestyle="None", markersize=10, zorder=6)
+
+        if lab_lim[0] is not None: 
+            ax.axhline(lab_lim[0], color="#7030a0", linestyle="-", linewidth=2, label="LAB LCL")
+            ax.axhline(lab_lim[1], color="#7030a0", linestyle="-", linewidth=2, label="LAB UCL")
+        if line_lim[0] is not None: 
+            ax.axhline(line_lim[0], color="#ff0000", linestyle="--", linewidth=2, label="LINE LCL")
+            ax.axhline(line_lim[1], color="#ff0000", linestyle="--", linewidth=2, label="LINE UCL")
+
+        ax.set_title(title, fontsize=15, fontweight="bold", pad=25)
+        ax.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
+        ax.grid(axis="x", visible=False)
+        ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
+        ax.tick_params(axis="x", rotation=45)
+        fig.subplots_adjust(right=0.8, top=0.8)
         return fig
 
     def download(fig, name):
         buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=200, bbox_inches="tight"); buf.seek(0)
         st.download_button("📥 Download PNG", buf, name, "image/png", key=f"dl_{name}")
 
-    # Section: CONTROL CHART LAB-LINE
     st.markdown("### 📊 CONTROL CHART: LAB-LINE")
     for k in ["ΔL", "Δa", "Δb"]:
         lab_lim = safe_get_limit(color, "LAB", k)
@@ -328,7 +361,6 @@ if app_mode == "🚀 Main Dashboard":
         fig = spc_combined(spc_data[k]["lab"], spc_data[k]["line"], f"COMBINED {k}", lab_lim, line_lim, control_batch_code)
         st.pyplot(fig); download(fig, f"COMBINED_{color}_{k}.png")
 
-    # Section: PHASE 2 CHARTS
     st.markdown("---")
     st.subheader("📊 SPC Combined Chart (LAB + LINE) – Phase II")
     for k in ["ΔL", "Δa", "Δb"]:
@@ -338,7 +370,6 @@ if app_mode == "🚀 Main Dashboard":
         if fig is not None: st.pyplot(fig); download(fig, f"COMBINED_PHASE2_{color}_{k}.png")
         else: st.info(f"{k}: Not enough Phase II data")
 
-    # Section: DISTRIBUTIONS DASHBOARD
     st.markdown("---")
     st.markdown("## 📈 Line Process Distribution Dashboard")
     def normal_pdf(x, mean, std): return (1 / (std * math.sqrt(2 * math.pi))) * np.exp(-0.5 * ((x - mean) / std) ** 2)
@@ -388,11 +419,35 @@ if app_mode == "🚀 Main Dashboard":
             buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=150, bbox_inches="tight"); buf.seek(0)
             st.download_button("⬇ Download", data=buf, file_name=f"{k}_lab_dist.png", mime="image/png", key=f"dl_lab_dist_{k}")
 
+    # Section: OOC TABLE
+    st.markdown("## 🚨 Out-of-Control Batches")
+    ooc_rows = []
+    
+    for k in ["ΔL", "Δa", "Δb"]:
+        lcl, ucl = safe_get_limit(color, "LINE", k)
+        if control_batch_code is not None:
+            line_phase2 = spc_data[k]["line"][spc_data[k]["line"]["製造批號"] >= control_batch_code]
+            ooc_line = detect_out_of_control(line_phase2, lcl, ucl)
+            for _, r in ooc_line.iterrows(): 
+                ooc_rows.append({"Factor": k, "Type": "LINE", "Batch No.": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
+        
+        lcl, ucl = safe_get_limit(color, "LAB", k)
+        if control_batch_code is not None:
+            lab_phase2 = spc_data[k]["lab"][spc_data[k]["lab"]["製造批號"] >= control_batch_code]
+            ooc_lab = detect_out_of_control(lab_phase2, lcl, ucl)
+            for _, r in ooc_lab.iterrows(): 
+                ooc_rows.append({"Factor": k, "Type": "LAB", "Batch No.": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
+    
+    if ooc_rows: 
+        ooc_df = pd.DataFrame(ooc_rows)
+        st.dataframe(ooc_df, use_container_width=True)
+    else: 
+        st.success("✅ No out-of-control batches detected")
+
     # Section: THICKNESS CORRELATION
     st.markdown("---")
     st.header("🎨 Thickness – Color Analysis (Per Coil)")
     
-    # Note: Keep original column names
     coil_col, time_col, thickness_col = "Coil No.", "Time", "Avergage Thickness"
     dE_col, dL_col, da_col, db_col = "Average value ΔE 正面", "Average value ΔL 正面", "Average value Δa 正面", "Average value Δb 正面"
     required_cols = [coil_col, time_col, thickness_col, dE_col, dL_col, da_col, db_col]
@@ -414,7 +469,6 @@ if app_mode == "🚀 Main Dashboard":
             filter_mode_bottom = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
         
         with col2:
-            # --- UPDATE LOGIC: NO SELECTION = SHOW ALL ---
             if filter_mode_bottom == "Month":
                 all_months = sorted(df_plot["Month"].unique())
                 month_sel = st.multiselect("Select month(s) [Leave empty to show all]", all_months, default=[], key="bottom_month_sel")
@@ -533,7 +587,6 @@ if app_mode == "🚀 Main Dashboard":
                             st.pyplot(fig)
 
                             st.markdown("### 🧠 Interpretation")
-                            # --- CORRELATION REFERENCE TABLE ---
                             st.markdown("""
                             **📊 Correlation Levels Reference:**
                             
@@ -543,7 +596,6 @@ if app_mode == "🚀 Main Dashboard":
                             | 🟠 **Moderate**| 0.55 ≤ \|R\| < 0.77 | 0.30 ≤ R² < 0.60 | Thickness partially contributes to color drift. |
                             | 🟢 **Weak/Low** | \|R\| < 0.55 | R² < 0.30 | Thickness is unlikely the main driver of color variation. |
                             """)
-                            # -----------------------------------
 
                             if r2 is not None:
                                 if r2 >= 0.6: 
@@ -555,7 +607,6 @@ if app_mode == "🚀 Main Dashboard":
                             else: 
                                 st.info("ℹ Not enough data for regression analysis.")
 
-                            # --- AUTOMATED RISK ALERT (OOC CLUSTERING) ---
                             if ooc_mask.any() and (~ooc_mask).any():
                                 thick_col = "Avergage Thickness"
                                 ooc_thick = coil_df[ooc_mask][thick_col]
@@ -569,7 +620,7 @@ if app_mode == "🚀 Main Dashboard":
                                     st.warning(f"🚨 **Automated Risk Alert:** OOC coils are noticeably clustered in the **HIGH** thickness zone (Mean OOC Thickness: {mean_ooc:.2f} > Normal Q3: {q3_norm:.2f}). Consider tightening the **Upper Specification Limit (USL)** for thickness to mitigate color drift risks.")
                                 elif mean_ooc < q1_norm:
                                     st.warning(f"🚨 **Automated Risk Alert:** OOC coils are noticeably clustered in the **LOW** thickness zone (Mean OOC Thickness: {mean_ooc:.2f} < Normal Q1: {q1_norm:.2f}). Consider tightening the **Lower Specification Limit (LSL)** for thickness to mitigate color drift risks.")
-                            # ---------------------------------------------
+                            
                             with st.expander("📋 Phase II – Coil Level Data"): 
                                 st.dataframe(coil_df.sort_values("製造批號"), use_container_width=True)
 
@@ -667,14 +718,10 @@ elif app_mode == "📋 Limit Status Summary":
     st.markdown("### 📊 Comprehensive Status Table")
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
-    # =========================================================
-    # ACTION REQUIRED (MISSING LIMITS)
-    # =========================================================
     st.markdown("---")
     st.markdown("### 🚨 Action Required: Missing Limits")
-    st.markdown("The following colors do not have configured control limits but have enough data (≥ 3 batches). Please navigate to **🎛️ Control Limit Calculator** (View 3) to configure them.")
+    st.markdown("The following colors do not have configured control limits but have enough data (≥ 3 batches). Please navigate to **🎛️ Control Limit Calculator** to configure them.")
     
-    # Filter colors without Limits BUT with enough data to calculate
     pending_colors = summary_df[
         (summary_df["Current Limits"] == "❌ No") & 
         (summary_df["Ready for Calc (Total)"] == "✅ Yes")
@@ -682,14 +729,12 @@ elif app_mode == "📋 Limit Status Summary":
     
     if not pending_colors.empty:
         st.warning(f"Found **{len(pending_colors)}** color(s) waiting for limit calculation:")
-        
-        # Create 1:2 ratio columns so the table takes 1/3 of the screen
         col_table, col_empty = st.columns([1, 2])
         with col_table:
             st.dataframe(
                 pending_colors[["Color Code", "Total Batches"]], 
-                hide_index=True,           # Hide index column
-                use_container_width=True   # Auto-width to fill column 1
+                hide_index=True,
+                use_container_width=True
             )
     else:
         st.success("🎉 All colors with sufficient data already have their control limits configured!")
@@ -705,14 +750,11 @@ elif app_mode == "🎛️ Control Limit Calculator":
         st.markdown("**Select Data Source:**")
         calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True)
         
-    # Placeholder to push method comparison table to the top
     result_placeholder = st.empty()
     st.markdown("---")
 
     factors = ["ΔL", "Δa", "Δb"]
     calc_res = {}
-    
-    # Init variables to calculate sum of squares for both methods
     dE_std_sq, dE_iqr_sq = 0, 0
 
     for f in factors:
@@ -739,7 +781,6 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 "sig": sig, "iqr_k": iqr_k, "olcl": olcl, "oucl": oucl, "std_lcl": std_lcl, "std_ucl": std_ucl, "iqr_lcl": iqr_lcl, "iqr_ucl": iqr_ucl
             }
             
-            # Calculate max squared for each method independently
             dE_std_sq += max(abs(std_lcl), abs(std_ucl))**2
             dE_iqr_sq += max(abs(iqr_lcl), abs(iqr_ucl))**2
 
@@ -779,50 +820,37 @@ elif app_mode == "🎛️ Control Limit Calculator":
         else:
             st.warning(f"Not enough data for {f} (min 3 batches).")
 
-    # --- FILL RESULTS IN PLACEHOLDER AT THE TOP FOR BOTH METHODS ---
     if len(calc_res) == 3:
-        # Square root for final ΔE
         dE_std = math.sqrt(dE_std_sq)
         dE_iqr = math.sqrt(dE_iqr_sq)
-        
-        # Evaluation threshold depending on LINE or LAB
         limit_threshold = 1.0 if calc_source.upper() == "LINE" else 0.5
         
         with result_placeholder.container():
             st.markdown("### 🎯 Derived ΔE UCL Comparison")
             col_res1, col_res2 = st.columns(2)
             
-            # Display Method 1 (Standard) results
             with col_res1:
                 if dE_std <= limit_threshold: 
                     st.success(f"**Method 1 (Standard)** ΔE UCL: **{dE_std:.3f}** (✅ ≤ {limit_threshold})")
                 else: 
                     st.error(f"**Method 1 (Standard)** ΔE UCL: **{dE_std:.3f}** (⚠️ > {limit_threshold})")
                     
-            # Display Method 2 (IQR) results
             with col_res2:
                 if dE_iqr <= limit_threshold: 
                     st.success(f"**Method 2 (IQR)** ΔE UCL: **{dE_iqr:.3f}** (✅ ≤ {limit_threshold})")
                 else: 
                     st.error(f"**Method 2 (IQR)** ΔE UCL: **{dE_iqr:.3f}** (⚠️ > {limit_threshold})")
 
-            # =========================================================
-            # AI TOLERANCE RECOMMENDATION (PRACTICAL ADAPTIVE)
-            # =========================================================
             st.markdown("---")
             st.markdown("### 💡 AI Tolerance Recommendation")
             
-            # Get standard deviation (s) of each factor from actual data
             s_L = calc_res["ΔL"]['s']
             s_a = calc_res["Δa"]['s']
             s_b = calc_res["Δb"]['s']
             var_sum = s_L**2 + s_a**2 + s_b**2
             
             if var_sum > 0:
-                # Visual Cap not to be exceeded
                 visual_cap = 0.600 if calc_source.upper() == "LINE" else 0.350
-                
-                # Actual line fluctuation (3-Sigma)
                 proc_L = 3 * s_L
                 proc_a = 3 * s_a
                 proc_b = 3 * s_b
@@ -831,12 +859,8 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 col_rl, col_ra, col_rb = st.columns(3)
                 
                 if proc_dE <= limit_threshold:
-                    # ---------------------------------------------------------
-                    # SCENARIO 1: HIGHLY STABLE MACHINE (CAPABLE)
-                    # ---------------------------------------------------------
                     st.success(f"🌟 **Process Capable!** Your natural 3σ variation yields ΔE = **{proc_dE:.3f}** (≤ {limit_threshold}). The system mathematically expands your limits to give production the maximum safe tolerance.")
                     
-                    # Safely expand tolerance
                     M = limit_threshold / math.sqrt(var_sum)
                     math_L, math_a, math_b = M * s_L, M * s_a, M * s_b
                     
@@ -858,15 +882,11 @@ elif app_mode == "🎛️ Control Limit Calculator":
                     render_card(col_rb, "Δb", rec_b, cap_b, math_b)
                     
                 else:
-                    # ---------------------------------------------------------
-                    # SCENARIO 2: HIGH FLUCTUATION (INCAPABLE) -> PRACTICAL APPROACH
-                    # ---------------------------------------------------------
                     st.warning(f"⚠️ **Strict Spec Unrealistic!** Your process natural 3σ yields ΔE = **{proc_dE:.3f}** (> {limit_threshold}). Forcing strict specs will cause false alarms. Below are the **Practical Limits** adapting to your actual machine capability:")
                     
                     def get_practical(proc_val, cap_val):
                         return min(proc_val, cap_val), proc_val > cap_val
                     
-                    # Accept tolerance equal to actual 3 Sigma (capped at visual limit)
                     rec_L, cap_L = get_practical(proc_L, visual_cap)
                     rec_a, cap_a = get_practical(proc_a, visual_cap)
                     rec_b, cap_b = get_practical(proc_b, visual_cap)
@@ -881,44 +901,26 @@ elif app_mode == "🎛️ Control Limit Calculator":
                     render_practical_card(col_ra, "Δa", rec_a, cap_a, proc_a)
                     render_practical_card(col_rb, "Δb", rec_b, cap_b, proc_b)
                     
-                    # Recalculate actual dE after applying this limit
                     prac_dE = math.sqrt(rec_L**2 + rec_a**2 + rec_b**2)
                     st.caption(f"🎯 *Note: By applying these practical limits, your expected ΔE UCL will be ~**{prac_dE:.3f}**. To bring this down to {limit_threshold}, you must fundamentally reduce machine fluctuation.*")
-                    
             else:
                 st.warning("Data variance is zero. Cannot generate recommendations.")
 
-    # =========================================================
-    # MANUAL ΔE CALCULATOR (Bottom Section)
-    # =========================================================
     st.markdown("---")
     st.subheader("🧮 Manual ΔE Calculator")
-    st.markdown("Enter custom values for ΔL, Δa, and Δb to calculate the resulting overall color difference (ΔE).")
-    
-    # Create 3 columns for neat input
     col_ml, col_ma, col_mb = st.columns(3)
-    with col_ml:
-        man_L = st.number_input("Input ΔL value:", value=0.000, step=0.100, format="%.3f")
-    with col_ma:
-        man_a = st.number_input("Input Δa value:", value=0.000, step=0.100, format="%.3f")
-    with col_mb:
-        man_b = st.number_input("Input Δb value:", value=0.000, step=0.100, format="%.3f")
+    with col_ml: man_L = st.number_input("Input ΔL value:", value=0.000, step=0.100, format="%.3f")
+    with col_ma: man_a = st.number_input("Input Δa value:", value=0.000, step=0.100, format="%.3f")
+    with col_mb: man_b = st.number_input("Input Δb value:", value=0.000, step=0.100, format="%.3f")
         
-    # Calculate ΔE using spatial geometry formula
     manual_dE = math.sqrt(man_L**2 + man_a**2 + man_b**2)
-    
-    # Retrieve limit_threshold defined above (based on LINE or LAB)
     limit_threshold = 1.0 if calc_source.upper() == "LINE" else 0.5
     
-    # Display result with visual warning
     st.markdown("#### **Calculation Result**")
     if manual_dE <= limit_threshold:
         st.success(f"### 🎯 Calculated ΔE: **{manual_dE:.3f}** (✅ Meets **{calc_source}** standard ≤ {limit_threshold})")
     else:
         st.error(f"### 🎯 Calculated ΔE: **{manual_dE:.3f}** (⚠️ Exceeds **{calc_source}** limit > {limit_threshold})")
-    
-    # Display illustrative formula (Optional)
-    st.latex(r"\Delta E = \sqrt{\Delta L^2 + \Delta a^2 + \Delta b^2}")
 
 # =========================================================
 # VIEW 4: LAB VS LINE SCALE-UP ANALYSIS
@@ -933,7 +935,6 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
     if df.empty:
         st.warning("⚠️ No data available for analysis.")
     else:
-        # --- 1. DATA PREPARATION ---
         batch_compare = df.groupby("製造批號", as_index=False).agg({
             "入料檢測 ΔL 正面": "mean", "入料檢測 Δa 正面": "mean", "入料檢測 Δb 正面": "mean",
             "正-北 ΔL": "mean", "正-南 ΔL": "mean",
@@ -941,7 +942,6 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
             "正-北 Δb": "mean", "正-南 Δb": "mean"
         }).dropna()
 
-        # Average Production (LINE) results
         batch_compare["LINE_ΔL"] = batch_compare[["正-北 ΔL", "正-南 ΔL"]].mean(axis=1)
         batch_compare["LINE_Δa"] = batch_compare[["正-北 Δa", "正-南 Δa"]].mean(axis=1)
         batch_compare["LINE_Δb"] = batch_compare[["正-北 Δb", "正-南 Δb"]].mean(axis=1)
@@ -964,27 +964,23 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
                     st.info(f"Insufficient paired data for {f}.")
                     continue
                     
-                # --- 2. STATISTICAL CALCULATION ---
                 diff = y - x
                 mean_bias = np.mean(diff)
                 std_dev = np.std(diff)
                 slope, intercept = np.polyfit(x, y, 1)
                 r2_score = (np.corrcoef(x, y)[0, 1])**2
                 
-                # Metrics Display
                 st.markdown(f"### 📊 Process Metrics: **{f}**")
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Systematic Bias (Avg)", f"{mean_bias:+.3f}", help="Average deviation between Line and Lab")
                 m2.metric("Fluctuation (1σ)", f"±{std_dev:.3f}", help="Standard deviation of the shift")
                 m3.metric("Predictability (R²)", f"{r2_score:.3f}", help="Model reliability (closer to 1.0 is better)")
 
-                # --- 3. AI ANALYTICAL INSIGHTS ---
-                # Determine direction based on factor
                 if f == "ΔL":
                     direction = "LIGHTER" if mean_bias > 0.05 else "DARKER" if mean_bias < -0.05 else "STABLE"
                 elif f == "Δa":
                     direction = "REDDER" if mean_bias > 0.05 else "GREENER" if mean_bias < -0.05 else "STABLE"
-                else: # Δb
+                else: 
                     direction = "YELLOWER" if mean_bias > 0.05 else "BLUER" if mean_bias < -0.05 else "STABLE"
 
                 if direction != "STABLE":
@@ -992,37 +988,30 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
                 else:
                     st.success(f"✅ **Insight:** Production results are highly consistent with Lab inputs.")
 
-                # --- 4. VISUALIZATION & PREDICTOR ---
                 col_chart, col_pred = st.columns([2.2, 1])
                 
                 with col_pred:
                     st.subheader("🔮 Outcome Predictor")
                     user_lab = st.number_input(f"Current LAB {f}:", value=float(x[-1]), step=0.01, format="%.3f", key=f"f5_en_{f}")
                     
-                    # Prediction calculation
                     pred_line = slope * user_lab + intercept
                     ci_95 = 2 * std_dev
                     
                     st.info(f"**Predicted LINE {f}:**\n## {pred_line:.3f}")
                     st.caption(f"Confidence Range (95%):\n**[{pred_line-ci_95:.3f} to {pred_line+ci_95:.3f}]**")
-                    
-                    # Offset Suggestion
                     st.success(f"🛠 **Lab Suggestion:**\nTo reach 0.000 on LINE, formulate LAB at: **{-mean_bias:+.3f}**")
 
                 with col_chart:
                     fig, ax = plt.subplots(figsize=(8, 6))
                     ax.grid(True, linestyle="--", alpha=0.3, zorder=0)
                     
-                    # Scatter and Prediction Star
                     ax.scatter(x, y, alpha=0.6, color="#3498db", edgecolors="white", s=80, label="Historical Data", zorder=3)
                     ax.scatter(user_lab, pred_line, color="#f1c40f", edgecolors="black", s=300, marker="*", label="Prediction ⭐", zorder=5)
                     
-                    # Reference Lines
                     mn, mx = min(x.min(), y.min(), user_lab, pred_line) - 0.1, max(x.max(), y.max(), user_lab, pred_line) + 0.1
                     ax.plot([mn, mx], [mn, mx], color="#7f8c8d", linestyle="--", alpha=0.6, label="Ideal (LINE = LAB)", zorder=1)
                     ax.plot(np.linspace(mn, mx, 100), slope * np.linspace(mn, mx, 100) + intercept, color="#e74c3c", linewidth=2.5, label="Actual Trend", zorder=2)
                     
-                    # Professional Color Guides
                     bbox_style = dict(boxstyle="round,pad=0.3", alpha=0.1, lw=1)
                     if f == "ΔL":
                         ax.annotate("☀️ Lighter", xy=(0.95, 0.95), xycoords='axes fraction', ha='right', bbox=dict(facecolor='yellow', **bbox_style))
@@ -1044,8 +1033,7 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
                     plt.close(fig)
 
 # =========================================================
-# =========================================================
-# VIEW 6: AI OOC WORD REPORT GENERATOR
+# VIEW 5: AI OOC WORD REPORT GENERATOR
 # =========================================================
 elif app_mode == "📄 AI OOC Word Report":
     st.title("📄 AI Automated OOC Report Generator")
@@ -1117,7 +1105,6 @@ elif app_mode == "📄 AI OOC Word Report":
                     if line_lim[1] is not None and avg_val > line_lim[1]: direction = "upper"
                     elif line_lim[0] is not None and avg_val < line_lim[0]: direction = "lower"
                     
-                    # Analysis text
                     analysis = f"Statistical analysis indicates that the '{factor}' factor exhibits a significant deviation towards the {direction} control limit, resulting in a '{color_shift}' visual shift on the production line. A total of {len(factor_ooc)} recent batches violated stability rules. "
                     
                     has_3sigma = any(factor_ooc["Rule_3Sigma"] == True)
@@ -1126,7 +1113,6 @@ elif app_mode == "📄 AI OOC Word Report":
                     else:
                         analysis += "The violations are strictly Control Limit breaches, suggesting a systematic mean shift in the baseline formulation."
                         
-                    # Corrective Actions
                     actions = (
                         f"1. Formulation Adjustment: Request the Lab to apply a counter-offset to the baseline formula to mitigate the '{color_shift}' drift.\n"
                         f"2. Process Audit: Verify film thickness consistency on the production line, as thickness variations strongly correlate with {factor} drifts.\n"
@@ -1134,34 +1120,51 @@ elif app_mode == "📄 AI OOC Word Report":
                     )
                     return analysis, actions
 
-                # Start creating Word file
                 doc = docx.Document()
                 doc.add_heading('System-Wide Out-of-Control (OOC) Report', 0)
                 doc.add_paragraph(f'Report generated on: {datetime.now().strftime("%Y-%m-%d %H:%M")}')
                 doc.add_paragraph(f'Total OOC Instances: {len(df_master_ooc)}')
                 doc.add_page_break()
 
-                # Print data for each color
                 for color_name, data in report_data_dict.items():
                     doc.add_heading(f'Color Code: {color_name}', level=1)
                     color_ooc = df_master_ooc[df_master_ooc["Color"] == color_name]
 
-                    def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code):
-                        fig, ax = plt.subplots(figsize=(10, 4))
-                        ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
-                        ax.plot(line["製造批號"], line["value"], "o-", label="LINE", color="#2ca02c")
+                    def spc_combined_word(lab, line, title, lab_lim, line_lim, control_batch_code):
+                        fig, ax = plt.subplots(figsize=(10, 4.5))
+                        ax.set_facecolor('#f2f2f2')
+
+                        ax.plot(lab["製造批號"], lab["value"], marker="^", color="#548235", linestyle="-", linewidth=1.5, markersize=7, label="LAB Input")
+                        ax.plot(line["製造批號"], line["value"], marker="o", color="#ffc000", linestyle="-", linewidth=1.5, markersize=7, markerfacecolor="white", markeredgewidth=1.5, label="LINE Output")
+
+                        import matplotlib.transforms as transforms
+                        trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+
                         if control_batch_code is not None:
-                            ax.axvline(x=control_batch_code, color="#b22222", linestyle="--", linewidth=1.5)
-                            ax.text(control_batch_code, ax.get_ylim()[1] * 0.97, "Phase II", color="#b22222", fontsize=9, ha="center", va="top")
+                            ax.axvline(x=control_batch_code, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
+                            ax.text(control_batch_code, 1.02, "  After Control", color="#0070c0", fontsize=12, ha="left", va="bottom", transform=trans)
+                            ax.text(control_batch_code, 1.02, "Before Control  ", color="#0070c0", fontsize=12, ha="right", va="bottom", transform=trans)
+
                         if lab_lim[0] is not None and lab_lim[1] is not None:
                             out_lab = (lab["value"] > lab_lim[1]) | (lab["value"] < lab_lim[0])
-                            ax.scatter(lab["製造批號"][out_lab], lab["value"][out_lab], color="red", s=80, zorder=5)
+                            ax.plot(lab["製造批號"][out_lab], lab["value"][out_lab], marker="^", color="red", linestyle="None", markersize=9, zorder=5)
                         if line_lim[0] is not None and line_lim[1] is not None:
                             out_line = (line["value"] > line_lim[1]) | (line["value"] < line_lim[0])
-                            ax.scatter(line["製造批號"][out_line], line["value"][out_line], color="red", s=80, zorder=5)
-                        if lab_lim[0] is not None: ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":", label="LAB LCL"); ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":", label="LAB UCL")
-                        if line_lim[0] is not None: ax.axhline(line_lim[0], color="red", label="LINE LCL"); ax.axhline(line_lim[1], color="red", label="LINE UCL")
-                        ax.set_title(title); ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left"); ax.grid(True); ax.tick_params(axis="x", rotation=45); fig.subplots_adjust(right=0.78)
+                            ax.plot(line["製造批號"][out_line], line["value"][out_line], marker="o", color="red", linestyle="None", markersize=9, zorder=5)
+
+                        if lab_lim[0] is not None: 
+                            ax.axhline(lab_lim[0], color="#7030a0", linestyle="-", linewidth=2, label="LAB LCL")
+                            ax.axhline(lab_lim[1], color="#7030a0", linestyle="-", linewidth=2, label="LAB UCL")
+                        if line_lim[0] is not None: 
+                            ax.axhline(line_lim[0], color="#ff0000", linestyle="--", linewidth=2, label="LINE LCL")
+                            ax.axhline(line_lim[1], color="#ff0000", linestyle="--", linewidth=2, label="LINE UCL")
+
+                        ax.set_title(title, fontsize=13, fontweight="bold", pad=20)
+                        ax.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
+                        ax.grid(axis="x", visible=False)
+                        ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
+                        ax.tick_params(axis="x", rotation=45)
+                        fig.subplots_adjust(right=0.75, top=0.8)
                         return fig
 
                     for factor in ["ΔL", "Δa", "Δb"]:
@@ -1204,7 +1207,7 @@ elif app_mode == "📄 AI OOC Word Report":
                             cb_code = data["cb_code"]
                             spc_c = data["spc"]
 
-                            fig = spc_combined(spc_c[factor]["lab"], spc_c[factor]["line"], f"{color_name} - COMBINED {factor}", lab_lim, line_lim, cb_code)
+                            fig = spc_combined_word(spc_c[factor]["lab"], spc_c[factor]["line"], f"{color_name} - COMBINED {factor}", lab_lim, line_lim, cb_code)
                             img_buf = io.BytesIO()
                             fig.savefig(img_buf, format='png', dpi=150, bbox_inches='tight')
                             img_buf.seek(0)
