@@ -7,7 +7,7 @@ import math
 import re
 import docx
 from docx.shared import Inches
-from datetime import datetime # Sửa dứt điểm lỗi NameError
+from datetime import datetime
 
 # =========================
 # PAGE CONFIG
@@ -64,7 +64,7 @@ def load_limit():
 df_raw = load_data()
 limit_df = load_limit()
 
-# Làm sạch tên cột
+# Clean column names
 df_raw.columns = df_raw.columns.str.replace("\r\n", " ", regex=False).str.replace("\n", " ", regex=False).str.replace("　", " ", regex=False).str.replace(r"\s+", " ", regex=True).str.strip()
 limit_df.columns = limit_df.columns.str.replace("\r\n", " ", regex=False).str.replace("\n", " ", regex=False).str.replace("　", " ", regex=False).str.replace(r"\s+", " ", regex=True).str.strip()
 
@@ -78,12 +78,11 @@ for col in numeric_columns:
     if col in df_raw.columns:
         df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce')
 
-
 # =========================
 # HELPER FUNCTIONS
 # =========================
 def safe_get_limit(c_code, src, fac):
-    """Hàm dò tìm thông minh, chống lỗi khoảng trắng và thứ tự chữ."""
+    """Smart lookup function to handle spaces and text order."""
     try:
         c_search = str(c_code).strip().upper()
         match_idx = -1
@@ -163,14 +162,19 @@ def calculate_batch_averages(df_filtered_color):
         res[f] = {"line": line_b, "lab": lab_b}
     return res
 
-
 # =========================
 # SIDEBAR – NAVIGATION
 # =========================
 st.sidebar.markdown("### 📊 View Mode")
 app_mode = st.sidebar.radio(
     "Select View Mode",
-    ["🚀 Main Dashboard", "📋 Limit Status Summary", "🎛️ Control Limit Calculator","🔬 Lab vs Line Scale-up","📄 AI OOC Word Report"], 
+    [
+        "🚀 Main Dashboard", 
+        "📋 Limit Status Summary", 
+        "🎛️ Control Limit Calculator",
+        "🔬 Lab vs Line Scale-up",
+        "📄 AI OOC Word Report"
+    ],
     label_visibility="collapsed"
 )
 
@@ -192,12 +196,11 @@ df = df_color.copy()
 if len(selected_years) > 0: df = df[df["Time"].dt.year.isin(selected_years)]
 if len(selected_months) > 0: df = df[df["Time"].dt.month.isin(selected_months)]
 
-# Tính toán chuẩn SPC dùng chung
+# Calculate shared SPC data
 spc_data = calculate_batch_averages(df)
 
-
 # =========================================================
-# VIEW 1: MAIN DASHBOARD (BẢN FULL GỐC)
+# VIEW 1: MAIN DASHBOARD
 # =========================================================
 if app_mode == "🚀 Main Dashboard":
 
@@ -209,7 +212,7 @@ if app_mode == "🚀 Main Dashboard":
         st.sidebar.warning(f"⚠ Control batch #{control_batch} exceeds available batches")
     st.sidebar.divider()
 
-    # Bảng Sheet Limits ở thanh Sidebar
+    # Limit Sheet table in Sidebar
     def show_limits(factor):
         c_search = str(color).strip().upper()
         mask = limit_df["Color_code"].astype(str).str.strip().str.upper() == c_search
@@ -261,7 +264,7 @@ if app_mode == "🚀 Main Dashboard":
         else:
             st.warning("No data after filtering.")
 
-    # --- 4. SUMMARY STATISTICS (Phần tiếp theo của code) ---
+    # --- 4. SUMMARY STATISTICS ---
     summary_line, summary_lab = [], []
     for k in ["ΔL", "Δa", "Δb"]:
         line_values = spc_data[k]["line"]["value"].dropna()
@@ -275,7 +278,7 @@ if app_mode == "🚀 Main Dashboard":
     with col1: st.markdown("#### 🏭 LINE"); st.dataframe(pd.DataFrame(summary_line), use_container_width=True, hide_index=True)
     with col2: st.markdown("#### 🧪 LAB"); st.dataframe(pd.DataFrame(summary_lab), use_container_width=True, hide_index=True)
 
-    # Các hàm vẽ Chart
+    # Chart plotting functions
     def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code):
         fig, ax = plt.subplots(figsize=(12, 4))
         ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
@@ -385,113 +388,11 @@ if app_mode == "🚀 Main Dashboard":
             buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=150, bbox_inches="tight"); buf.seek(0)
             st.download_button("⬇ Download", data=buf, file_name=f"{k}_lab_dist.png", mime="image/png", key=f"dl_lab_dist_{k}")
 
-    # Section: OOC TABLE
-    st.markdown("## 🚨 Out-of-Control Batches")
-    ooc_rows = []
-    
-    for k in ["ΔL", "Δa", "Δb"]:
-        lcl, ucl = safe_get_limit(color, "LINE", k)
-        if control_batch_code is not None:
-            line_phase2 = spc_data[k]["line"][spc_data[k]["line"]["製造批號"] >= control_batch_code]
-            ooc_line = detect_out_of_control(line_phase2, lcl, ucl)
-            for _, r in ooc_line.iterrows(): 
-                ooc_rows.append({"Factor": k, "Type": "LINE", "製造批號": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
-        
-        lcl, ucl = safe_get_limit(color, "LAB", k)
-        if control_batch_code is not None:
-            lab_phase2 = spc_data[k]["lab"][spc_data[k]["lab"]["製造批號"] >= control_batch_code]
-            ooc_lab = detect_out_of_control(lab_phase2, lcl, ucl)
-            for _, r in ooc_lab.iterrows(): 
-                ooc_rows.append({"Factor": k, "Type": "LAB", "製造批號": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
-    
-    if ooc_rows: 
-        ooc_df = pd.DataFrame(ooc_rows)
-        st.dataframe(ooc_df, use_container_width=True)
-
-        # ==========================================
-        # XUẤT BÁO CÁO WORD (OOC REPORT)
-        # ==========================================
-        st.markdown("### 📄 Xuất báo cáo OOC (Word)")
-        st.caption("Báo cáo sẽ bao gồm bảng chi tiết các cuộn vi phạm và biểu đồ SPC tương ứng.")
-
-        def create_ooc_word_report(color_name, df_ooc, spc_dict, batch_code):
-            doc = docx.Document()
-            doc.add_heading(f'OOC Report - Color: {color_name}', 0)
-            doc.add_paragraph(f'Report generated on: {datetime.now().strftime("%Y-%m-%d %H:%M")}')
-
-            for factor in ["ΔL", "Δa", "Δb"]:
-                df_factor = df_ooc[df_ooc["Factor"] == factor]
-                if not df_factor.empty:
-                    doc.add_heading(f'Factor: {factor}', level=1)
-
-                    # 1. Vẽ Bảng Dữ liệu
-                    table = doc.add_table(rows=1, cols=4)
-                    table.style = 'Table Grid'
-                    hdr_cells = table.rows[0].cells
-                    hdr_cells[0].text = 'Type (LAB/LINE)'
-                    hdr_cells[1].text = 'Batch No.'
-                    hdr_cells[2].text = 'Value'
-                    hdr_cells[3].text = 'Violated Rule'
-
-                    for _, r in df_factor.iterrows():
-                        row_cells = table.add_row().cells
-                        row_cells[0].text = str(r["Type"])
-                        row_cells[1].text = str(r["製造批號"])
-                        
-                        # Định dạng số: Lấy 2 chữ số thập phân, nếu .00 thì lược bỏ thành số nguyên
-                        val = float(r["Value"])
-                        val_rounded = round(val, 2)
-                        row_cells[2].text = str(int(val_rounded)) if val_rounded.is_integer() else str(val_rounded)
-
-                        # Xác định lỗi vi phạm
-                        rules = []
-                        if r["Rule_CL"]: rules.append("Control Limit")
-                        if r["Rule_3Sigma"]: rules.append("3-Sigma")
-                        row_cells[3].text = " + ".join(rules)
-
-                    doc.add_paragraph("\nControl Chart Reference:")
-
-                    # 2. Chèn Hình ảnh Biểu đồ
-                    lab_lim = safe_get_limit(color_name, "LAB", factor)
-                    line_lim = safe_get_limit(color_name, "LINE", factor)
-                    
-                    # Tái sử dụng hàm vẽ biểu đồ có sẵn của bạn
-                    fig = spc_combined(spc_dict[factor]["lab"], spc_dict[factor]["line"], f"COMBINED {factor}", lab_lim, line_lim, batch_code)
-                    
-                    # Lưu biểu đồ vào bộ nhớ đệm (BytesIO) thay vì lưu ra file vật lý
-                    img_buf = io.BytesIO()
-                    fig.savefig(img_buf, format='png', dpi=150, bbox_inches='tight')
-                    img_buf.seek(0)
-                    
-                    # Chèn vào Word với chiều ngang 6 inches
-                    doc.add_picture(img_buf, width=Inches(6.0))
-                    plt.close(fig) # Đóng figure để giải phóng bộ nhớ
-
-                    doc.add_page_break()
-
-            # Lưu file Word vào bộ nhớ đệm để tải xuống
-            report_buf = io.BytesIO()
-            doc.save(report_buf)
-            report_buf.seek(0)
-            return report_buf
-
-        # Tạo nút tải xuống
-        word_buffer = create_ooc_word_report(color, ooc_df, spc_data, control_batch_code)
-        st.download_button(
-            label=f"📥 Tải xuống Báo cáo OOC (.docx)",
-            data=word_buffer,
-            file_name=f"OOC_Report_{color}_{datetime.now().strftime('%Y%m%d')}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-
-    else: 
-        st.success("✅ No out-of-control batches detected")
-
-   # Section: THICKNESS CORRELATION
+    # Section: THICKNESS CORRELATION
     st.markdown("---")
     st.header("🎨 Thickness – Color Analysis (Per Coil)")
     
-    # Lưu ý: Giữ nguyên tên cột gốc trong DataFrame của bạn (kể cả có lỗi chính tả như "Avergage Thickness")
+    # Note: Keep original column names
     coil_col, time_col, thickness_col = "Coil No.", "Time", "Avergage Thickness"
     dE_col, dL_col, da_col, db_col = "Average value ΔE 正面", "Average value ΔL 正面", "Average value Δa 正面", "Average value Δb 正面"
     required_cols = [coil_col, time_col, thickness_col, dE_col, dL_col, da_col, db_col]
@@ -513,16 +414,16 @@ if app_mode == "🚀 Main Dashboard":
             filter_mode_bottom = st.radio("Filter by", ["Month", "Year"], horizontal=True, key="bottom_filter_mode")
         
         with col2:
-            # --- CẬP NHẬT LOGIC: KHÔNG CHỌN = HIỂN THỊ TẤT CẢ ---
+            # --- UPDATE LOGIC: NO SELECTION = SHOW ALL ---
             if filter_mode_bottom == "Month":
                 all_months = sorted(df_plot["Month"].unique())
                 month_sel = st.multiselect("Select month(s) [Leave empty to show all]", all_months, default=[], key="bottom_month_sel")
-                if month_sel:  # Chỉ lọc khi có tháng được chọn
+                if month_sel: 
                     df_plot = df_plot[df_plot["Month"].isin(month_sel)]
             else:
                 all_years = sorted(df_plot["Year"].unique())
                 year_sel = st.multiselect("Select year(s) [Leave empty to show all]", all_years, default=[], key="bottom_year_sel")
-                if year_sel:   # Chỉ lọc khi có năm được chọn
+                if year_sel: 
                     df_plot = df_plot[df_plot["Year"].isin(year_sel)]
 
         if df_plot.empty:
@@ -653,6 +554,7 @@ if app_mode == "🚀 Main Dashboard":
                                     st.success("🟢 Thickness unlikely main driver (Low R²)")
                             else: 
                                 st.info("ℹ Not enough data for regression analysis.")
+
                             # --- AUTOMATED RISK ALERT (OOC CLUSTERING) ---
                             if ooc_mask.any() and (~ooc_mask).any():
                                 thick_col = "Avergage Thickness"
@@ -670,6 +572,7 @@ if app_mode == "🚀 Main Dashboard":
                             # ---------------------------------------------
                             with st.expander("📋 Phase II – Coil Level Data"): 
                                 st.dataframe(coil_df.sort_values("製造批號"), use_container_width=True)
+
 # =========================================================
 # VIEW 2: LIMIT STATUS SUMMARY
 # =========================================================
@@ -765,14 +668,13 @@ elif app_mode == "📋 Limit Status Summary":
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
     # =========================================================
-    # =========================================================
-    # NEW SECTION: ACTION REQUIRED (MISSING LIMITS)
+    # ACTION REQUIRED (MISSING LIMITS)
     # =========================================================
     st.markdown("---")
     st.markdown("### 🚨 Action Required: Missing Limits")
     st.markdown("The following colors do not have configured control limits but have enough data (≥ 3 batches). Please navigate to **🎛️ Control Limit Calculator** (View 3) to configure them.")
     
-    # Lọc ra những màu chưa có Limit VÀ đã đủ dữ liệu để tính
+    # Filter colors without Limits BUT with enough data to calculate
     pending_colors = summary_df[
         (summary_df["Current Limits"] == "❌ No") & 
         (summary_df["Ready for Calc (Total)"] == "✅ Yes")
@@ -781,13 +683,13 @@ elif app_mode == "📋 Limit Status Summary":
     if not pending_colors.empty:
         st.warning(f"Found **{len(pending_colors)}** color(s) waiting for limit calculation:")
         
-        # Tạo cột tỷ lệ 1:2 để bảng chỉ chiếm 1/3 màn hình bên trái, nhìn sẽ cân đối và sang hơn
+        # Create 1:2 ratio columns so the table takes 1/3 of the screen
         col_table, col_empty = st.columns([1, 2])
         with col_table:
             st.dataframe(
                 pending_colors[["Color Code", "Total Batches"]], 
-                hide_index=True,           # Ẩn cột index 0, 1, 2...
-                use_container_width=True   # Trải đều độ rộng lấp đầy không gian cột 1
+                hide_index=True,           # Hide index column
+                use_container_width=True   # Auto-width to fill column 1
             )
     else:
         st.success("🎉 All colors with sufficient data already have their control limits configured!")
@@ -803,14 +705,14 @@ elif app_mode == "🎛️ Control Limit Calculator":
         st.markdown("**Select Data Source:**")
         calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True)
         
-    # Placeholder để đẩy bảng so sánh 2 phương pháp lên đầu trang
+    # Placeholder to push method comparison table to the top
     result_placeholder = st.empty()
     st.markdown("---")
 
     factors = ["ΔL", "Δa", "Δb"]
     calc_res = {}
     
-    # Khởi tạo 2 biến để tính tổng bình phương cho 2 phương pháp
+    # Init variables to calculate sum of squares for both methods
     dE_std_sq, dE_iqr_sq = 0, 0
 
     for f in factors:
@@ -837,7 +739,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 "sig": sig, "iqr_k": iqr_k, "olcl": olcl, "oucl": oucl, "std_lcl": std_lcl, "std_ucl": std_ucl, "iqr_lcl": iqr_lcl, "iqr_ucl": iqr_ucl
             }
             
-            # Tính max bình phương cho từng phương pháp độc lập
+            # Calculate max squared for each method independently
             dE_std_sq += max(abs(std_lcl), abs(std_ucl))**2
             dE_iqr_sq += max(abs(iqr_lcl), abs(iqr_ucl))**2
 
@@ -877,53 +779,27 @@ elif app_mode == "🎛️ Control Limit Calculator":
         else:
             st.warning(f"Not enough data for {f} (min 3 batches).")
 
-    # --- ĐIỀN KẾT QUẢ VÀO PLACEHOLDER Ở ĐẦU TRANG CHO CẢ 2 PHƯƠNG PHÁP ---
+    # --- FILL RESULTS IN PLACEHOLDER AT THE TOP FOR BOTH METHODS ---
     if len(calc_res) == 3:
-        # Căn bậc 2 để ra giá trị ΔE cuối cùng
+        # Square root for final ΔE
         dE_std = math.sqrt(dE_std_sq)
         dE_iqr = math.sqrt(dE_iqr_sq)
         
-        # Mốc đánh giá tùy theo LINE hay LAB
+        # Evaluation threshold depending on LINE or LAB
         limit_threshold = 1.0 if calc_source.upper() == "LINE" else 0.5
         
         with result_placeholder.container():
             st.markdown("### 🎯 Derived ΔE UCL Comparison")
             col_res1, col_res2 = st.columns(2)
             
-            # Hiển thị kết quả Method 1 (Standard)
+            # Display Method 1 (Standard) results
             with col_res1:
                 if dE_std <= limit_threshold: 
                     st.success(f"**Method 1 (Standard)** ΔE UCL: **{dE_std:.3f}** (✅ ≤ {limit_threshold})")
                 else: 
                     st.error(f"**Method 1 (Standard)** ΔE UCL: **{dE_std:.3f}** (⚠️ > {limit_threshold})")
                     
-            # Hiển thị kết quả Method 2 (IQR)
-            with col_res2:
-                if dE_iqr <= limit_threshold: 
-                    st.success(f"**Method 2 (IQR)** ΔE UCL: **{dE_iqr:.3f}** (✅ ≤ {limit_threshold})")
-                else: 
-                    st.error(f"**Method 2 (IQR)** ΔE UCL: **{dE_iqr:.3f}** (⚠️ > {limit_threshold})")
-# --- ĐIỀN KẾT QUẢ VÀO PLACEHOLDER Ở ĐẦU TRANG CHO CẢ 2 PHƯƠNG PHÁP ---
-    if len(calc_res) == 3:
-        # Căn bậc 2 để ra giá trị ΔE cuối cùng
-        dE_std = math.sqrt(dE_std_sq)
-        dE_iqr = math.sqrt(dE_iqr_sq)
-        
-        # Mốc đánh giá tùy theo LINE hay LAB
-        limit_threshold = 1.0 if calc_source.upper() == "LINE" else 0.5
-        
-        with result_placeholder.container():
-            st.markdown("### 🎯 Derived ΔE UCL Comparison")
-            col_res1, col_res2 = st.columns(2)
-            
-            # Hiển thị kết quả Method 1 (Standard)
-            with col_res1:
-                if dE_std <= limit_threshold: 
-                    st.success(f"**Method 1 (Standard)** ΔE UCL: **{dE_std:.3f}** (✅ ≤ {limit_threshold})")
-                else: 
-                    st.error(f"**Method 1 (Standard)** ΔE UCL: **{dE_std:.3f}** (⚠️ > {limit_threshold})")
-                    
-            # Hiển thị kết quả Method 2 (IQR)
+            # Display Method 2 (IQR) results
             with col_res2:
                 if dE_iqr <= limit_threshold: 
                     st.success(f"**Method 2 (IQR)** ΔE UCL: **{dE_iqr:.3f}** (✅ ≤ {limit_threshold})")
@@ -931,24 +807,22 @@ elif app_mode == "🎛️ Control Limit Calculator":
                     st.error(f"**Method 2 (IQR)** ΔE UCL: **{dE_iqr:.3f}** (⚠️ > {limit_threshold})")
 
             # =========================================================
-           # =========================================================
-          # =========================================================
-            # NEW: AI TOLERANCE RECOMMENDATION (PRACTICAL ADAPTIVE)
+            # AI TOLERANCE RECOMMENDATION (PRACTICAL ADAPTIVE)
             # =========================================================
             st.markdown("---")
             st.markdown("### 💡 AI Tolerance Recommendation")
             
-            # Lấy độ lệch chuẩn (s) của từng yếu tố từ data thực tế
+            # Get standard deviation (s) of each factor from actual data
             s_L = calc_res["ΔL"]['s']
             s_a = calc_res["Δa"]['s']
             s_b = calc_res["Δb"]['s']
             var_sum = s_L**2 + s_a**2 + s_b**2
             
             if var_sum > 0:
-                # Mức trần thị giác (Visual Cap) không cho phép vượt qua
+                # Visual Cap not to be exceeded
                 visual_cap = 0.600 if calc_source.upper() == "LINE" else 0.350
                 
-                # Biến động thực tế của dây chuyền (3-Sigma)
+                # Actual line fluctuation (3-Sigma)
                 proc_L = 3 * s_L
                 proc_a = 3 * s_a
                 proc_b = 3 * s_b
@@ -958,11 +832,11 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 
                 if proc_dE <= limit_threshold:
                     # ---------------------------------------------------------
-                    # TÌNH HUỐNG 1: MÁY CHẠY RẤT ỔN ĐỊNH (CAPABLE)
+                    # SCENARIO 1: HIGHLY STABLE MACHINE (CAPABLE)
                     # ---------------------------------------------------------
                     st.success(f"🌟 **Process Capable!** Your natural 3σ variation yields ΔE = **{proc_dE:.3f}** (≤ {limit_threshold}). The system mathematically expands your limits to give production the maximum safe tolerance.")
                     
-                    # Nới rộng dung sai an toàn
+                    # Safely expand tolerance
                     M = limit_threshold / math.sqrt(var_sum)
                     math_L, math_a, math_b = M * s_L, M * s_a, M * s_b
                     
@@ -985,14 +859,14 @@ elif app_mode == "🎛️ Control Limit Calculator":
                     
                 else:
                     # ---------------------------------------------------------
-                    # TÌNH HUỐNG 2: MÁY DAO ĐỘNG LỚN (INCAPABLE) -> THỰC TẾ HÓA
+                    # SCENARIO 2: HIGH FLUCTUATION (INCAPABLE) -> PRACTICAL APPROACH
                     # ---------------------------------------------------------
                     st.warning(f"⚠️ **Strict Spec Unrealistic!** Your process natural 3σ yields ΔE = **{proc_dE:.3f}** (> {limit_threshold}). Forcing strict specs will cause false alarms. Below are the **Practical Limits** adapting to your actual machine capability:")
                     
                     def get_practical(proc_val, cap_val):
                         return min(proc_val, cap_val), proc_val > cap_val
                     
-                    # Chấp nhận dung sai bằng 3 Sigma thực tế (nhưng không được vượt mức trần thị giác)
+                    # Accept tolerance equal to actual 3 Sigma (capped at visual limit)
                     rec_L, cap_L = get_practical(proc_L, visual_cap)
                     rec_a, cap_a = get_practical(proc_a, visual_cap)
                     rec_b, cap_b = get_practical(proc_b, visual_cap)
@@ -1007,20 +881,21 @@ elif app_mode == "🎛️ Control Limit Calculator":
                     render_practical_card(col_ra, "Δa", rec_a, cap_a, proc_a)
                     render_practical_card(col_rb, "Δb", rec_b, cap_b, proc_b)
                     
-                    # Tính lại dE thực tế sau khi áp dụng giới hạn này
+                    # Recalculate actual dE after applying this limit
                     prac_dE = math.sqrt(rec_L**2 + rec_a**2 + rec_b**2)
                     st.caption(f"🎯 *Note: By applying these practical limits, your expected ΔE UCL will be ~**{prac_dE:.3f}**. To bring this down to {limit_threshold}, you must fundamentally reduce machine fluctuation.*")
                     
             else:
                 st.warning("Data variance is zero. Cannot generate recommendations.")
-# =========================================================
+
+    # =========================================================
     # MANUAL ΔE CALCULATOR (Bottom Section)
     # =========================================================
     st.markdown("---")
     st.subheader("🧮 Manual ΔE Calculator")
     st.markdown("Enter custom values for ΔL, Δa, and Δb to calculate the resulting overall color difference (ΔE).")
     
-    # Tạo 3 cột để nhập liệu cho gọn gàng
+    # Create 3 columns for neat input
     col_ml, col_ma, col_mb = st.columns(3)
     with col_ml:
         man_L = st.number_input("Input ΔL value:", value=0.000, step=0.100, format="%.3f")
@@ -1029,23 +904,24 @@ elif app_mode == "🎛️ Control Limit Calculator":
     with col_mb:
         man_b = st.number_input("Input Δb value:", value=0.000, step=0.100, format="%.3f")
         
-    # Tính toán ΔE bằng công thức hình học không gian
+    # Calculate ΔE using spatial geometry formula
     manual_dE = math.sqrt(man_L**2 + man_a**2 + man_b**2)
     
-    # Lấy lại mốc limit_threshold đã xác định ở trên (dựa vào LINE hoặc LAB)
+    # Retrieve limit_threshold defined above (based on LINE or LAB)
     limit_threshold = 1.0 if calc_source.upper() == "LINE" else 0.5
     
-    # Hiển thị kết quả với cảnh báo trực quan
+    # Display result with visual warning
     st.markdown("#### **Calculation Result**")
     if manual_dE <= limit_threshold:
         st.success(f"### 🎯 Calculated ΔE: **{manual_dE:.3f}** (✅ Meets **{calc_source}** standard ≤ {limit_threshold})")
     else:
         st.error(f"### 🎯 Calculated ΔE: **{manual_dE:.3f}** (⚠️ Exceeds **{calc_source}** limit > {limit_threshold})")
     
-    # Hiển thị công thức minh hoạ (Tùy chọn)
+    # Display illustrative formula (Optional)
     st.latex(r"\Delta E = \sqrt{\Delta L^2 + \Delta a^2 + \Delta b^2}")
-# VIEW 5: LAB VS LINE SCALE-UP ANALYSIS
-# VIEW 5: LAB VS LINE SCALE-UP ANALYSIS
+
+# =========================================================
+# VIEW 4: LAB VS LINE SCALE-UP ANALYSIS
 # =========================================================
 elif app_mode == "🔬 Lab vs Line Scale-up":
     st.title("🔬 Lab to Line Scale-up Analysis")
@@ -1147,7 +1023,6 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
                     ax.plot(np.linspace(mn, mx, 100), slope * np.linspace(mn, mx, 100) + intercept, color="#e74c3c", linewidth=2.5, label="Actual Trend", zorder=2)
                     
                     # Professional Color Guides
-                    
                     bbox_style = dict(boxstyle="round,pad=0.3", alpha=0.1, lw=1)
                     if f == "ΔL":
                         ax.annotate("☀️ Lighter", xy=(0.95, 0.95), xycoords='axes fraction', ha='right', bbox=dict(facecolor='yellow', **bbox_style))
@@ -1167,26 +1042,27 @@ elif app_mode == "🔬 Lab vs Line Scale-up":
                     
                     st.pyplot(fig)
                     plt.close(fig)
+
 # =========================================================
-# VIEW 6: AI OOC WORD REPORT GENERATOR
+# VIEW 5: AI OOC WORD REPORT GENERATOR
 # =========================================================
 elif app_mode == "📄 AI OOC Word Report":
     st.title("📄 AI Automated OOC Report Generator")
-    st.markdown("Hệ thống sẽ quét **TẤT CẢ** các mã màu đang có giới hạn kiểm soát (Phase II) để tìm ra các lô hàng vi phạm (Out-Of-Control). Sau đó, AI sẽ tự động đóng gói dữ liệu và biểu đồ vào một file Word hoàn chỉnh.")
+    st.markdown("The system will scan **ALL** color codes with active control limits (Phase II) to find Out-Of-Control batches. The AI will then automatically package the data and charts into a comprehensive Word report.")
 
-    if st.button("🚀 Chạy quét hệ thống & Tạo báo cáo Word", type="primary"):
-        with st.spinner("🔍 Đang quét toàn bộ hệ thống và tạo biểu đồ... Quá trình này có thể mất khoảng 10-30 giây."):
+    if st.button("🚀 Run System Scan & Generate Word Report", type="primary"):
+        with st.spinner("🔍 Scanning the entire system and generating charts... This may take 10-30 seconds."):
             all_colors = sorted(df_raw["塗料編號"].dropna().unique())
             master_ooc_rows = []
-            report_data_dict = {} # Lưu tạm dữ liệu để vẽ biểu đồ cho file Word
+            report_data_dict = {} 
 
-            # 1. QUÉT TOÀN BỘ MÃ MÀU
+            # SCAN ALL COLOR CODES
             for c in all_colors:
                 c_clean = str(c).strip()
                 mask = limit_df["Color_code"].astype(str).str.strip() == c_clean
                 row = limit_df[mask]
                 
-                # Bỏ qua nếu mã màu chưa được cấu hình Limits
+                # Skip if color code lacks configured limits
                 if row.empty: continue
                 limit_cols = [col for col in row.columns if "LCL" in col or "UCL" in col]
                 if row[limit_cols].isna().all().all(): continue
@@ -1195,13 +1071,13 @@ elif app_mode == "📄 AI OOC Word Report":
                 cb = get_control_batch(c)
                 cb_code = get_control_batch_code(df_c, cb)
 
-                if cb_code is None: continue # Bỏ qua nếu chưa sang Phase II
+                if cb_code is None: continue # Skip if not in Phase II
 
                 spc_c = calculate_batch_averages(df_c)
                 color_has_ooc = False
 
                 for k in ["ΔL", "Δa", "Δb"]:
-                    # Kiểm tra LINE
+                    # Check LINE
                     lcl, ucl = safe_get_limit(c, "LINE", k)
                     if lcl is not None and ucl is not None:
                         line_phase2 = spc_c[k]["line"][spc_c[k]["line"]["製造批號"] >= cb_code]
@@ -1210,7 +1086,7 @@ elif app_mode == "📄 AI OOC Word Report":
                             master_ooc_rows.append({"Color": c, "Factor": k, "Type": "LINE", "Batch": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
                             color_has_ooc = True
 
-                    # Kiểm tra LAB
+                    # Check LAB
                     lcl, ucl = safe_get_limit(c, "LAB", k)
                     if lcl is not None and ucl is not None:
                         lab_phase2 = spc_c[k]["lab"][spc_c[k]["lab"]["製造批號"] >= cb_code]
@@ -1219,36 +1095,54 @@ elif app_mode == "📄 AI OOC Word Report":
                             master_ooc_rows.append({"Color": c, "Factor": k, "Type": "LAB", "Batch": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
                             color_has_ooc = True
 
-                # Nếu mã màu này có lỗi, lưu lại data để lát vẽ biểu đồ
+                # If this color has errors, save data to plot chart later
                 if color_has_ooc:
                     report_data_dict[c] = {"spc": spc_c, "cb_code": cb_code}
 
-            # 2. XỬ LÝ KẾT QUẢ VÀ TẠO WORD
+            # PROCESS RESULTS AND GENERATE WORD
             if not master_ooc_rows:
-                st.success("✅ Tuyệt vời! Hệ thống không phát hiện bất kỳ cuộn nào vi phạm giới hạn kiểm soát.")
+                st.success("✅ Excellent! The system did not detect any out-of-control batches.")
             else:
                 df_master_ooc = pd.DataFrame(master_ooc_rows)
-                st.warning(f"⚠️ Phát hiện **{len(df_master_ooc)}** cảnh báo OOC trên **{len(report_data_dict)}** mã màu khác nhau.")
+                st.warning(f"⚠️ Detected **{len(df_master_ooc)}** OOC alerts across **{len(report_data_dict)}** different color codes.")
                 st.dataframe(df_master_ooc, use_container_width=True)
 
-                # Bắt đầu tạo file Word
+                # Start creating Word file
                 doc = docx.Document()
                 doc.add_heading('System-Wide Out-of-Control (OOC) Report', 0)
                 doc.add_paragraph(f'Report generated on: {datetime.now().strftime("%Y-%m-%d %H:%M")}')
                 doc.add_paragraph(f'Total OOC Instances: {len(df_master_ooc)}')
                 doc.add_page_break()
 
-                # In dữ liệu cho từng màu
+                # Print data for each color
                 for color_name, data in report_data_dict.items():
                     doc.add_heading(f'Color Code: {color_name}', level=1)
                     color_ooc = df_master_ooc[df_master_ooc["Color"] == color_name]
+
+                    def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code):
+                        fig, ax = plt.subplots(figsize=(12, 4))
+                        ax.plot(lab["製造批號"], lab["value"], "o-", label="LAB", color="#1f77b4")
+                        ax.plot(line["製造批號"], line["value"], "o-", label="LINE", color="#2ca02c")
+                        if control_batch_code is not None:
+                            ax.axvline(x=control_batch_code, color="#b22222", linestyle="--", linewidth=1.5)
+                            ax.text(control_batch_code, ax.get_ylim()[1] * 0.97, "Phase II", color="#b22222", fontsize=9, ha="center", va="top")
+                        if lab_lim[0] is not None and lab_lim[1] is not None:
+                            out_lab = (lab["value"] > lab_lim[1]) | (lab["value"] < lab_lim[0])
+                            ax.scatter(lab["製造批號"][out_lab], lab["value"][out_lab], color="red", s=80, zorder=5)
+                        if line_lim[0] is not None and line_lim[1] is not None:
+                            out_line = (line["value"] > line_lim[1]) | (line["value"] < line_lim[0])
+                            ax.scatter(line["製造批號"][out_line], line["value"][out_line], color="red", s=80, zorder=5)
+                        if lab_lim[0] is not None: ax.axhline(lab_lim[0], color="#1f77b4", linestyle=":", label="LAB LCL"); ax.axhline(lab_lim[1], color="#1f77b4", linestyle=":", label="LAB UCL")
+                        if line_lim[0] is not None: ax.axhline(line_lim[0], color="red", label="LINE LCL"); ax.axhline(line_lim[1], color="red", label="LINE UCL")
+                        ax.set_title(title); ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left"); ax.grid(True); ax.tick_params(axis="x", rotation=45); fig.subplots_adjust(right=0.78)
+                        return fig
 
                     for factor in ["ΔL", "Δa", "Δb"]:
                         factor_ooc = color_ooc[color_ooc["Factor"] == factor]
                         if not factor_ooc.empty:
                             doc.add_heading(f'Factor: {factor}', level=2)
 
-                            # Tạo bảng
+                            # Create table
                             table = doc.add_table(rows=1, cols=4)
                             table.style = 'Table Grid'
                             hdr = table.rows[0].cells
@@ -1268,7 +1162,7 @@ elif app_mode == "📄 AI OOC Word Report":
 
                             doc.add_paragraph("\nControl Chart Reference:")
 
-                            # Tạo biểu đồ và nhúng vào Word
+                            # Create chart and embed in Word
                             lab_lim = safe_get_limit(color_name, "LAB", factor)
                             line_lim = safe_get_limit(color_name, "LINE", factor)
                             cb_code = data["cb_code"]
@@ -1279,41 +1173,19 @@ elif app_mode == "📄 AI OOC Word Report":
                             fig.savefig(img_buf, format='png', dpi=150, bbox_inches='tight')
                             img_buf.seek(0)
                             doc.add_picture(img_buf, width=Inches(6.0))
-                            plt.close(fig) # Tránh tràn RAM
+                            plt.close(fig) # Prevent RAM overflow
 
                     doc.add_page_break()
 
-                # Lưu vào bộ nhớ đệm để tải về
+                # Save to buffer for download
                 report_buf = io.BytesIO()
                 doc.save(report_buf)
                 report_buf.seek(0)
 
-                st.success("✅ File Word đã được AI tổng hợp xong!")
+                st.success("✅ Word file successfully compiled by AI!")
                 st.download_button(
-                    label="📥 Tải xuống Báo cáo Word Toàn hệ thống",
+                    label="📥 Download System-Wide Word Report",
                     data=report_buf,
                     file_name=f"System_OOC_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
