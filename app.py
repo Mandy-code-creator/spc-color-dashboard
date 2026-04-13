@@ -156,15 +156,22 @@ def calculate_batch_averages(df_filtered_color):
     for f in ["ΔL", "Δa", "Δb"]:
         tmp = df_filtered_color.copy()
         
+        # Calculate LINE average
         col_n, col_s = f"正-北 {f}", f"正-南 {f}"
         tmp[col_n] = pd.to_numeric(tmp[col_n], errors='coerce')
         tmp[col_s] = pd.to_numeric(tmp[col_s], errors='coerce')
         tmp["row_avg"] = tmp[[col_n, col_s]].mean(axis=1)
         line_b = tmp.groupby("製造批號", as_index=False).agg({"Time": "min", "row_avg": "mean"}).rename(columns={"row_avg": "value"}).sort_values("Time").dropna()
         
+        # Calculate LAB average
         col_lab = f"入料檢測 {f} 正面"
         tmp[col_lab] = pd.to_numeric(tmp[col_lab], errors='coerce')
         lab_b = tmp.groupby("製造批號", as_index=False).agg({"Time": "min", col_lab: "mean"}).rename(columns={col_lab: "value"}).sort_values("Time").dropna()
+        
+        # CRITICAL FIX: Enforce Strict 1:1 Intersection (Drop batches missing in either LAB or LINE)
+        common_batches = set(line_b["製造批號"]).intersection(set(lab_b["製造批號"]))
+        line_b = line_b[line_b["製造批號"].isin(common_batches)]
+        lab_b = lab_b[lab_b["製造批號"].isin(common_batches)]
         
         res[f] = {"line": line_b, "lab": lab_b}
     return res
@@ -216,7 +223,8 @@ def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code, glb_or
     fig, ax = plt.subplots(figsize=(12, 5))
     ax.set_facecolor('#f2f2f2')
 
-    valid_batches = set(lab["製造批號"]).union(set(line["製造批號"]))
+    # Ensure intersection (though calculate_batch_averages already did this, this acts as a double safety net)
+    valid_batches = set(lab["製造批號"]).intersection(set(line["製造批號"]))
     local_order = [b for b in glb_order if b in valid_batches]
 
     lab_dict = dict(zip(lab["製造批號"], lab["value"]))
@@ -226,10 +234,9 @@ def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code, glb_or
     line_x, line_y = [], []
 
     for i, b in enumerate(local_order):
-        if b in lab_dict:
+        if b in lab_dict and b in line_dict:
             lab_x.append(i)
             lab_y.append(lab_dict[b])
-        if b in line_dict:
             line_x.append(i)
             line_y.append(line_dict[b])
 
@@ -288,7 +295,7 @@ def spc_combined_phase2(lab, line, title, lab_lim, line_lim, control_batch_code,
     fig, ax = plt.subplots(figsize=(12, 5))
     ax.set_facecolor('#f2f2f2')
 
-    valid_batches = set(lab2["製造批號"]).union(set(line2["製造批號"]))
+    valid_batches = set(lab2["製造批號"]).intersection(set(line2["製造批號"]))
     local_order = [b for b in glb_order if b in valid_batches]
 
     lab_dict = dict(zip(lab2["製造批號"], lab2["value"]))
@@ -298,10 +305,9 @@ def spc_combined_phase2(lab, line, title, lab_lim, line_lim, control_batch_code,
     line_x, line_y = [], []
 
     for i, b in enumerate(local_order):
-        if b in lab_dict:
+        if b in lab_dict and b in line_dict:
             lab_x.append(i)
             lab_y.append(lab_dict[b])
-        if b in line_dict:
             line_x.append(i)
             line_y.append(line_dict[b])
 
@@ -1224,7 +1230,7 @@ elif app_mode == "📄 AI OOC Word Report":
                         fig, ax = plt.subplots(figsize=(10, 4.5))
                         ax.set_facecolor('#f2f2f2')
 
-                        valid_batches = set(lab["製造批號"]).union(set(line["製造批號"]))
+                        valid_batches = set(lab["製造批號"]).intersection(set(line["製造批號"]))
                         local_order = [b for b in glb_order if b in valid_batches]
 
                         lab_dict = dict(zip(lab["製造批號"], lab["value"]))
@@ -1234,10 +1240,9 @@ elif app_mode == "📄 AI OOC Word Report":
                         line_x, line_y = [], []
 
                         for i, b in enumerate(local_order):
-                            if b in lab_dict:
+                            if b in lab_dict and b in line_dict:
                                 lab_x.append(i)
                                 lab_y.append(lab_dict[b])
-                            if b in line_dict:
                                 line_x.append(i)
                                 line_y.append(line_dict[b])
 
