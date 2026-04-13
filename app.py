@@ -82,7 +82,6 @@ for col in numeric_columns:
 # HELPER FUNCTIONS
 # =========================
 def safe_get_limit(c_code, src, fac):
-    """Smart lookup function to handle spaces and text order."""
     try:
         c_search = str(c_code).strip().upper()
         match_idx = -1
@@ -128,8 +127,10 @@ def get_control_batch(color):
 
 def get_control_batch_code(df_unfiltered, control_batch):
     if control_batch is None or df_unfiltered.empty: return None
-    batch_order = df_unfiltered.sort_values("Time").groupby("製造批號", as_index=False).first().reset_index(drop=True)
-    if 1 <= control_batch <= len(batch_order): return batch_order.loc[control_batch - 1, "製造批號"]
+    # Sắp xếp đúng theo thời gian thay vì chữ cái
+    batch_order = df_unfiltered.sort_values("Time")["製造批號"].drop_duplicates().tolist()
+    if 1 <= control_batch <= len(batch_order): 
+        return batch_order[control_batch - 1]
     return None
 
 def detect_out_of_control(spc_df, lcl, ucl):
@@ -154,11 +155,14 @@ def calculate_batch_averages(df_filtered_color):
         tmp[col_n] = pd.to_numeric(tmp[col_n], errors='coerce')
         tmp[col_s] = pd.to_numeric(tmp[col_s], errors='coerce')
         tmp["row_avg"] = tmp[[col_n, col_s]].mean(axis=1)
-        line_b = tmp.groupby("製造批號", as_index=False).agg({"Time": "min", "row_avg": "mean"}).rename(columns={"row_avg": "value"}).dropna()
+        # Giữ nguyên thứ tự thời gian sau khi groupby
+        line_b = tmp.groupby("製造批號", as_index=False).agg({"Time": "min", "row_avg": "mean"}).rename(columns={"row_avg": "value"}).sort_values("Time").dropna()
+        
         # LAB
         col_lab = f"入料檢測 {f} 正面"
         tmp[col_lab] = pd.to_numeric(tmp[col_lab], errors='coerce')
-        lab_b = tmp.groupby("製造批號", as_index=False).agg({"Time": "min", col_lab: "mean"}).rename(columns={col_lab: "value"}).dropna()
+        lab_b = tmp.groupby("製造批號", as_index=False).agg({"Time": "min", col_lab: "mean"}).rename(columns={col_lab: "value"}).sort_values("Time").dropna()
+        
         res[f] = {"line": line_b, "lab": lab_b}
     return res
 
@@ -183,8 +187,11 @@ st.sidebar.title("🎨 Filter")
 color = st.sidebar.selectbox("Color code", sorted(df_raw["塗料編號"].dropna().unique()), key="sidebar_color")
 
 df_color = df_raw[df_raw["塗料編號"] == color].copy()
+
+# LẤY MỐC THỜI GIAN ĐỂ LỌC PHASE II CHUẨN XÁC
 control_batch = get_control_batch(color)
 control_batch_code = get_control_batch_code(df_color, control_batch)
+control_time = df_color[df_color["製造批號"] == control_batch_code]["Time"].min() if control_batch_code else None
 
 all_years = sorted(df_color["Time"].dt.year.dropna().astype(int).unique())
 selected_years = st.sidebar.multiselect("📅 Year (Leave empty for ALL)", options=all_years, default=[], key="sidebar_year")
@@ -273,7 +280,6 @@ if app_mode == "🚀 Main Dashboard":
     with col1: st.markdown("#### 🏭 LINE"); st.dataframe(pd.DataFrame(summary_line), use_container_width=True, hide_index=True)
     with col2: st.markdown("#### 🧪 LAB"); st.dataframe(pd.DataFrame(summary_lab), use_container_width=True, hide_index=True)
 
-    # Professional Chart Plotting Functions
     def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code):
         fig, ax = plt.subplots(figsize=(12, 5))
         ax.set_facecolor('#f2f2f2')
@@ -285,9 +291,12 @@ if app_mode == "🚀 Main Dashboard":
         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
 
         if control_batch_code is not None:
-            ax.axvline(x=control_batch_code, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
-            ax.text(control_batch_code, 1.02, "  After Control", color="#0070c0", fontsize=14, ha="left", va="bottom", transform=trans)
-            ax.text(control_batch_code, 1.02, "Before Control  ", color="#0070c0", fontsize=14, ha="right", va="bottom", transform=trans)
+            # We map axvline using the batch code string, which matplotlib translates to coordinate
+            # Check if it exists in the currently displayed X axis to avoid errors
+            if control_batch_code in lab["製造批號"].values or control_batch_code in line["製造批號"].values:
+                ax.axvline(x=control_batch_code, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
+                ax.text(control_batch_code, 1.02, "  After Control", color="#0070c0", fontsize=14, ha="left", va="bottom", transform=trans)
+                ax.text(control_batch_code, 1.02, "Before Control  ", color="#0070c0", fontsize=14, ha="right", va="bottom", transform=trans)
 
         if lab_lim[0] is not None and lab_lim[1] is not None:
             out_lab = (lab["value"] > lab_lim[1]) | (lab["value"] < lab_lim[0])
@@ -312,9 +321,12 @@ if app_mode == "🚀 Main Dashboard":
         fig.subplots_adjust(right=0.8, top=0.8) 
         return fig
 
-    def spc_combined_phase2(lab, line, title, lab_lim, line_lim, control_batch_code):
-        if control_batch_code is None: return None
-        lab2 = lab[lab["製造批號"] >= control_batch_code]; line2 = line[line["製造批號"] >= control_batch_code]
+    def spc_combined_phase2(lab, line, title, lab_lim, line_lim, control_batch_code, control_time):
+        if control_time is None: return None
+        # FILTER BY CHRONOLOGICAL TIME
+        lab2 = lab[lab["Time"] >= control_time]
+        line2 = line[line["Time"] >= control_time]
+        
         if lab2.empty and line2.empty: return None
         
         fig, ax = plt.subplots(figsize=(12, 5))
@@ -325,8 +337,10 @@ if app_mode == "🚀 Main Dashboard":
 
         import matplotlib.transforms as transforms
         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-        ax.axvline(x=control_batch_code, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
-        ax.text(control_batch_code, 1.02, "  After Control (Phase II)", color="#0070c0", fontsize=14, ha="left", va="bottom", transform=trans)
+        
+        if control_batch_code in lab2["製造批號"].values or control_batch_code in line2["製造批號"].values:
+            ax.axvline(x=control_batch_code, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
+            ax.text(control_batch_code, 1.02, "  After Control (Phase II)", color="#0070c0", fontsize=14, ha="left", va="bottom", transform=trans)
 
         if not lab2.empty and lab_lim[0] is not None:
             out = (lab2["value"] < lab_lim[0]) | (lab2["value"] > lab_lim[1])
@@ -366,7 +380,7 @@ if app_mode == "🚀 Main Dashboard":
     for k in ["ΔL", "Δa", "Δb"]:
         lab_lim = safe_get_limit(color, "LAB", k)
         line_lim = safe_get_limit(color, "LINE", k)
-        fig = spc_combined_phase2(spc_data[k]["lab"], spc_data[k]["line"], f"{k} – LAB + LINE (Phase II)", lab_lim, line_lim, control_batch_code)
+        fig = spc_combined_phase2(spc_data[k]["lab"], spc_data[k]["line"], f"{k} – LAB + LINE (Phase II)", lab_lim, line_lim, control_batch_code, control_time)
         if fig is not None: st.pyplot(fig); download(fig, f"COMBINED_PHASE2_{color}_{k}.png")
         else: st.info(f"{k}: Not enough Phase II data")
 
@@ -425,15 +439,15 @@ if app_mode == "🚀 Main Dashboard":
     
     for k in ["ΔL", "Δa", "Δb"]:
         lcl, ucl = safe_get_limit(color, "LINE", k)
-        if control_batch_code is not None:
-            line_phase2 = spc_data[k]["line"][spc_data[k]["line"]["製造批號"] >= control_batch_code]
+        if control_time is not None:
+            line_phase2 = spc_data[k]["line"][spc_data[k]["line"]["Time"] >= control_time]
             ooc_line = detect_out_of_control(line_phase2, lcl, ucl)
             for _, r in ooc_line.iterrows(): 
                 ooc_rows.append({"Factor": k, "Type": "LINE", "Batch No.": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
         
         lcl, ucl = safe_get_limit(color, "LAB", k)
-        if control_batch_code is not None:
-            lab_phase2 = spc_data[k]["lab"][spc_data[k]["lab"]["製造批號"] >= control_batch_code]
+        if control_time is not None:
+            lab_phase2 = spc_data[k]["lab"][spc_data[k]["lab"]["Time"] >= control_time]
             ooc_lab = detect_out_of_control(lab_phase2, lcl, ucl)
             for _, r in ooc_lab.iterrows(): 
                 ooc_rows.append({"Factor": k, "Type": "LAB", "Batch No.": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
@@ -543,10 +557,10 @@ if app_mode == "🚀 Main Dashboard":
 
             st.markdown("---")
             st.header("🔬 PHASE II – THICKNESS CORRELATION")
-            if control_batch_code is None:
+            if control_time is None:
                 st.warning("⚠ Control batch not defined. Phase II cannot be determined.")
             else:
-                df_p2 = df[(df["製造批號"] >= control_batch_code) & (df["塗料編號"] == color)].copy()
+                df_p2 = df[(df["Time"] >= control_time) & (df["塗料編號"] == color)].copy()
                 if df_p2.empty:
                     st.warning("⚠ No Phase II data after filtering.")
                 else:
@@ -662,11 +676,14 @@ elif app_mode == "📋 Limit Status Summary":
         
         cb = get_control_batch(c)
         cb_code = get_control_batch_code(df_c, cb)
+        
+        c_time = df_c[df_c["製造批號"] == cb_code]["Time"].min() if cb_code else None
+        
         recalc_status = "❌ Not Enough Data"
         phase2_batches = 0
         
-        if cb_code is not None:
-            df_p2 = df_c[df_c["製造批號"] >= cb_code]
+        if c_time is not None:
+            df_p2 = df_c[df_c["Time"] >= c_time]
             phase2_batches = df_p2["製造批號"].nunique()
             
             if phase2_batches >= 3:
@@ -1045,7 +1062,6 @@ elif app_mode == "📄 AI OOC Word Report":
             master_ooc_rows = []
             report_data_dict = {} 
 
-            # SCAN ALL COLOR CODES
             for c in all_colors:
                 c_clean = str(c).strip()
                 mask = limit_df["Color_code"].astype(str).str.strip() == c_clean
@@ -1058,8 +1074,10 @@ elif app_mode == "📄 AI OOC Word Report":
                 df_c = df_raw[df_raw["塗料編號"] == c].copy()
                 cb = get_control_batch(c)
                 cb_code = get_control_batch_code(df_c, cb)
+                
+                c_time = df_c[df_c["製造批號"] == cb_code]["Time"].min() if cb_code else None
 
-                if cb_code is None: continue
+                if c_time is None: continue
 
                 spc_c = calculate_batch_averages(df_c)
                 color_has_ooc = False
@@ -1067,7 +1085,7 @@ elif app_mode == "📄 AI OOC Word Report":
                 for k in ["ΔL", "Δa", "Δb"]:
                     lcl_line, ucl_line = safe_get_limit(c, "LINE", k)
                     if lcl_line is not None and ucl_line is not None:
-                        line_phase2 = spc_c[k]["line"][spc_c[k]["line"]["製造批號"] >= cb_code]
+                        line_phase2 = spc_c[k]["line"][spc_c[k]["line"]["Time"] >= c_time]
                         ooc_line = detect_out_of_control(line_phase2, lcl_line, ucl_line)
                         for _, r in ooc_line.iterrows():
                             master_ooc_rows.append({"Color": c, "Factor": k, "Type": "LINE", "Batch": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
@@ -1075,7 +1093,7 @@ elif app_mode == "📄 AI OOC Word Report":
 
                     lcl_lab, ucl_lab = safe_get_limit(c, "LAB", k)
                     if lcl_lab is not None and ucl_lab is not None:
-                        lab_phase2 = spc_c[k]["lab"][spc_c[k]["lab"]["製造批號"] >= cb_code]
+                        lab_phase2 = spc_c[k]["lab"][spc_c[k]["lab"]["Time"] >= c_time]
                         ooc_lab = detect_out_of_control(lab_phase2, lcl_lab, ucl_lab)
                         for _, r in ooc_lab.iterrows():
                             master_ooc_rows.append({"Color": c, "Factor": k, "Type": "LAB", "Batch": r["製造批號"], "Value": round(r["value"], 2), "Rule_CL": r["Rule_CL"], "Rule_3Sigma": r["Rule_3Sigma"]})
@@ -1084,7 +1102,6 @@ elif app_mode == "📄 AI OOC Word Report":
                 if color_has_ooc:
                     report_data_dict[c] = {"spc": spc_c, "cb_code": cb_code}
 
-            # PROCESS RESULTS AND GENERATE WORD
             if not master_ooc_rows:
                 st.success("✅ Excellent! The system did not detect any out-of-control batches.")
             else:
@@ -1092,7 +1109,6 @@ elif app_mode == "📄 AI OOC Word Report":
                 st.warning(f"⚠️ Detected **{len(df_master_ooc)}** OOC alerts across **{len(report_data_dict)}** different color codes.")
                 st.dataframe(df_master_ooc, use_container_width=True)
 
-                # Helper Function: Generate AI Insights
                 def generate_ai_insights(factor, factor_ooc, line_lim):
                     avg_val = factor_ooc["Value"].astype(float).mean()
                     
@@ -1141,9 +1157,10 @@ elif app_mode == "📄 AI OOC Word Report":
                         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
 
                         if control_batch_code is not None:
-                            ax.axvline(x=control_batch_code, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
-                            ax.text(control_batch_code, 1.02, "  After Control", color="#0070c0", fontsize=12, ha="left", va="bottom", transform=trans)
-                            ax.text(control_batch_code, 1.02, "Before Control  ", color="#0070c0", fontsize=12, ha="right", va="bottom", transform=trans)
+                            if control_batch_code in lab["製造批號"].values or control_batch_code in line["製造批號"].values:
+                                ax.axvline(x=control_batch_code, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
+                                ax.text(control_batch_code, 1.02, "  After Control", color="#0070c0", fontsize=12, ha="left", va="bottom", transform=trans)
+                                ax.text(control_batch_code, 1.02, "Before Control  ", color="#0070c0", fontsize=12, ha="right", va="bottom", transform=trans)
 
                         if lab_lim[0] is not None and lab_lim[1] is not None:
                             out_lab = (lab["value"] > lab_lim[1]) | (lab["value"] < lab_lim[0])
@@ -1175,7 +1192,6 @@ elif app_mode == "📄 AI OOC Word Report":
                             lab_lim = safe_get_limit(color_name, "LAB", factor)
                             line_lim = safe_get_limit(color_name, "LINE", factor)
 
-                            # 1. Print Current Limits
                             lab_str = f"[{lab_lim[0]:.2f} ~ {lab_lim[1]:.2f}]" if lab_lim[0] is not None else "Not Configured"
                             line_str = f"[{line_lim[0]:.2f} ~ {line_lim[1]:.2f}]" if line_lim[0] is not None else "Not Configured"
                             
@@ -1183,7 +1199,6 @@ elif app_mode == "📄 AI OOC Word Report":
                             limit_p.add_run("📌 Current Control Limits (Spec):\n").bold = True
                             limit_p.add_run(f"   • LAB Target: {lab_str}\n   • LINE Target: {line_str}")
 
-                            # 2. Print Table
                             table = doc.add_table(rows=1, cols=4)
                             table.style = 'Table Grid'
                             hdr = table.rows[0].cells
@@ -1203,7 +1218,6 @@ elif app_mode == "📄 AI OOC Word Report":
 
                             doc.add_paragraph("\n📈 Control Chart Reference:")
 
-                            # 3. Create chart and embed
                             cb_code = data["cb_code"]
                             spc_c = data["spc"]
 
@@ -1214,7 +1228,6 @@ elif app_mode == "📄 AI OOC Word Report":
                             doc.add_picture(img_buf, width=Inches(6.0))
                             plt.close(fig)
 
-                            # 4. AI Insights & Actions
                             analysis_text, action_text = generate_ai_insights(factor, factor_ooc, line_lim)
                             
                             doc.add_heading('🤖 AI Process Analysis', level=3)
@@ -1225,7 +1238,6 @@ elif app_mode == "📄 AI OOC Word Report":
 
                     doc.add_page_break()
 
-                # Save to buffer for download
                 report_buf = io.BytesIO()
                 doc.save(report_buf)
                 report_buf.seek(0)
