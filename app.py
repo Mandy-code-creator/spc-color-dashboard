@@ -49,7 +49,7 @@ DATA_URL = "https://docs.google.com/spreadsheets/d/1lqsLKSoDTbtvAsHzJaEri8tPo5pA
 LIMIT_URL = "https://docs.google.com/spreadsheets/d/1jbP8puBraQ5Xgs9oIpJ7PlLpjIK3sltrgbrgKUcJ-Qo/export?format=csv"
 
 # =========================
-# LOAD DATA
+# LOAD DATA & CLEANING
 # =========================
 @st.cache_data(ttl=300)
 def load_data():
@@ -67,6 +67,12 @@ limit_df = load_limit()
 # Clean column names
 df_raw.columns = df_raw.columns.str.replace("\r\n", " ", regex=False).str.replace("\n", " ", regex=False).str.replace("　", " ", regex=False).str.replace(r"\s+", " ", regex=True).str.strip()
 limit_df.columns = limit_df.columns.str.replace("\r\n", " ", regex=False).str.replace("\n", " ", regex=False).str.replace("　", " ", regex=False).str.replace(r"\s+", " ", regex=True).str.strip()
+
+# CRITICAL FIX: Remove NA, NaN, and Empty spaces from Batch Number globally
+df_raw = df_raw.dropna(subset=["製造批號"])
+df_raw["製造批號"] = df_raw["製造批號"].astype(str).str.strip()
+df_raw = df_raw[df_raw["製造批號"] != ""]
+df_raw = df_raw[df_raw["製造批號"].str.lower() != "nan"]
 
 numeric_columns = [
     "入料檢測 ΔL 正面", "入料檢測 Δa 正面", "入料檢測 Δb 正面",
@@ -149,6 +155,7 @@ def calculate_batch_averages(df_filtered_color):
     res = {}
     for f in ["ΔL", "Δa", "Δb"]:
         tmp = df_filtered_color.copy()
+        
         col_n, col_s = f"正-北 {f}", f"正-南 {f}"
         tmp[col_n] = pd.to_numeric(tmp[col_n], errors='coerce')
         tmp[col_s] = pd.to_numeric(tmp[col_s], errors='coerce')
@@ -184,6 +191,7 @@ color = st.sidebar.selectbox("Color code", sorted(df_raw["塗料編號"].dropna(
 
 df_color = df_raw[df_raw["塗料編號"] == color].copy()
 
+# Synchronized Timeline
 global_batch_order = df_color.sort_values("Time")["製造批號"].drop_duplicates().tolist()
 control_batch = get_control_batch(color)
 control_batch_code = get_control_batch_code(df_color, control_batch)
@@ -202,23 +210,28 @@ if len(selected_months) > 0: df = df[df["Time"].dt.month.isin(selected_months)]
 spc_data = calculate_batch_averages(df)
 
 # =========================================================
-# PLOTTING CORE ENGINES (NO GAPS, PERFECT ALIGNMENT)
+# PLOTTING CORE ENGINES (BULLETPROOF DICTIONARY MAPPING)
 # =========================================================
 def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code, glb_order):
     fig, ax = plt.subplots(figsize=(12, 5))
     ax.set_facecolor('#f2f2f2')
 
-    # Xóa khoảng trống: Chỉ lấy những lô có dữ liệu thực sự trong LAB hoặc LINE
     valid_batches = set(lab["製造批號"]).union(set(line["製造批號"]))
     local_order = [b for b in glb_order if b in valid_batches]
 
-    lab_x = [local_order.index(b) for b in lab["製造批號"] if b in local_order]
-    lab_y = lab[lab["製造批號"].isin(local_order)]["value"].values
-    line_x = [local_order.index(b) for b in line["製造批號"] if b in local_order]
-    line_y = line[line["製造批號"].isin(local_order)]["value"].values
+    lab_dict = dict(zip(lab["製造批號"], lab["value"]))
+    line_dict = dict(zip(line["製造批號"], line["value"]))
 
-    if lab_x: lab_x, lab_y = zip(*sorted(zip(lab_x, lab_y)))
-    if line_x: line_x, line_y = zip(*sorted(zip(line_x, line_y)))
+    lab_x, lab_y = [], []
+    line_x, line_y = [], []
+
+    for i, b in enumerate(local_order):
+        if b in lab_dict:
+            lab_x.append(i)
+            lab_y.append(lab_dict[b])
+        if b in line_dict:
+            line_x.append(i)
+            line_y.append(line_dict[b])
 
     if lab_x: ax.plot(lab_x, lab_y, marker="^", color="#548235", linestyle="-", linewidth=1.5, markersize=8, label="LAB Input")
     if line_x: ax.plot(line_x, line_y, marker="o", color="#ffc000", linestyle="-", linewidth=1.5, markersize=8, markerfacecolor="white", markeredgewidth=2, label="LINE Output")
@@ -229,7 +242,6 @@ def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code, glb_or
     if control_batch_code is not None and control_batch_code in glb_order:
         global_ctrl_idx = glb_order.index(control_batch_code)
         ctrl_x = None
-        # Tìm vị trí chính xác của Phase II trên trục X cục bộ
         for i, b in enumerate(local_order):
             if glb_order.index(b) >= global_ctrl_idx:
                 ctrl_x = i
@@ -279,13 +291,19 @@ def spc_combined_phase2(lab, line, title, lab_lim, line_lim, control_batch_code,
     valid_batches = set(lab2["製造批號"]).union(set(line2["製造批號"]))
     local_order = [b for b in glb_order if b in valid_batches]
 
-    lab_x = [local_order.index(b) for b in lab2["製造批號"] if b in local_order]
-    lab_y = lab2[lab2["製造批號"].isin(local_order)]["value"].values
-    line_x = [local_order.index(b) for b in line2["製造批號"] if b in local_order]
-    line_y = line2[line2["製造批號"].isin(local_order)]["value"].values
+    lab_dict = dict(zip(lab2["製造批號"], lab2["value"]))
+    line_dict = dict(zip(line2["製造批號"], line2["value"]))
 
-    if lab_x: lab_x, lab_y = zip(*sorted(zip(lab_x, lab_y)))
-    if line_x: line_x, line_y = zip(*sorted(zip(line_x, line_y)))
+    lab_x, lab_y = [], []
+    line_x, line_y = [], []
+
+    for i, b in enumerate(local_order):
+        if b in lab_dict:
+            lab_x.append(i)
+            lab_y.append(lab_dict[b])
+        if b in line_dict:
+            line_x.append(i)
+            line_y.append(line_dict[b])
 
     if lab_x: ax.plot(lab_x, lab_y, marker="^", color="#548235", linestyle="-", linewidth=1.5, markersize=8, label="LAB Input")
     if line_x: ax.plot(line_x, line_y, marker="o", color="#ffc000", linestyle="-", linewidth=1.5, markersize=8, markerfacecolor="white", markeredgewidth=2, label="LINE Output")
@@ -1129,15 +1147,14 @@ elif app_mode == "📄 AI OOC Word Report":
                 df_c = df_raw[df_raw["塗料編號"] == c].copy()
                 cb = get_control_batch(c)
                 cb_code = get_control_batch_code(df_c, cb)
+                
+                c_time = df_c[df_c["製造批號"] == cb_code]["Time"].min() if cb_code else None
 
-                if cb_code is None: continue
+                if c_time is None: continue
 
                 global_batch_order_c = df_c.sort_values("Time")["製造批號"].drop_duplicates().tolist()
                 spc_c = calculate_batch_averages(df_c)
                 color_has_ooc = False
-                c_time = df_c[df_c["製造批號"] == cb_code]["Time"].min() if cb_code else None
-
-                if c_time is None: continue
 
                 for k in ["ΔL", "Δa", "Δb"]:
                     lcl_line, ucl_line = safe_get_limit(c, "LINE", k)
@@ -1210,16 +1227,22 @@ elif app_mode == "📄 AI OOC Word Report":
                         valid_batches = set(lab["製造批號"]).union(set(line["製造批號"]))
                         local_order = [b for b in glb_order if b in valid_batches]
 
-                        lab_x = [local_order.index(b) for b in lab["製造批號"] if b in local_order]
-                        lab_y = lab[lab["製造批號"].isin(local_order)]["value"].values
-                        line_x = [local_order.index(b) for b in line["製造批號"] if b in local_order]
-                        line_y = line[line["製造批號"].isin(local_order)]["value"].values
+                        lab_dict = dict(zip(lab["製造批號"], lab["value"]))
+                        line_dict = dict(zip(line["製造批號"], line["value"]))
 
-                        if lab_x: lab_x, lab_y = zip(*sorted(zip(lab_x, lab_y)))
-                        if line_x: line_x, line_y = zip(*sorted(zip(line_x, line_y)))
+                        lab_x, lab_y = [], []
+                        line_x, line_y = [], []
 
-                        ax.plot(lab_x, lab_y, marker="^", color="#548235", linestyle="-", linewidth=1.5, markersize=7, label="LAB Input")
-                        ax.plot(line_x, line_y, marker="o", color="#ffc000", linestyle="-", linewidth=1.5, markersize=7, markerfacecolor="white", markeredgewidth=1.5, label="LINE Output")
+                        for i, b in enumerate(local_order):
+                            if b in lab_dict:
+                                lab_x.append(i)
+                                lab_y.append(lab_dict[b])
+                            if b in line_dict:
+                                line_x.append(i)
+                                line_y.append(line_dict[b])
+
+                        if lab_x: ax.plot(lab_x, lab_y, marker="^", color="#548235", linestyle="-", linewidth=1.5, markersize=7, label="LAB Input")
+                        if line_x: ax.plot(line_x, line_y, marker="o", color="#ffc000", linestyle="-", linewidth=1.5, markersize=7, markerfacecolor="white", markeredgewidth=1.5, label="LINE Output")
 
                         import matplotlib.transforms as transforms
                         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
