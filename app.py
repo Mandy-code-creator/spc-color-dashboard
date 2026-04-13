@@ -156,19 +156,17 @@ def calculate_batch_averages(df_filtered_color):
     for f in ["ΔL", "Δa", "Δb"]:
         tmp = df_filtered_color.copy()
         
-        # Calculate LINE average
         col_n, col_s = f"正-北 {f}", f"正-南 {f}"
         tmp[col_n] = pd.to_numeric(tmp[col_n], errors='coerce')
         tmp[col_s] = pd.to_numeric(tmp[col_s], errors='coerce')
         tmp["row_avg"] = tmp[[col_n, col_s]].mean(axis=1)
         line_b = tmp.groupby("製造批號", as_index=False).agg({"Time": "min", "row_avg": "mean"}).rename(columns={"row_avg": "value"}).sort_values("Time").dropna()
         
-        # Calculate LAB average
         col_lab = f"入料檢測 {f} 正面"
         tmp[col_lab] = pd.to_numeric(tmp[col_lab], errors='coerce')
         lab_b = tmp.groupby("製造批號", as_index=False).agg({"Time": "min", col_lab: "mean"}).rename(columns={col_lab: "value"}).sort_values("Time").dropna()
         
-        # CRITICAL FIX: Enforce Strict 1:1 Intersection (Drop batches missing in either LAB or LINE)
+        # Enforce 1:1 Batch Intersection to prevent gaps
         common_batches = set(line_b["製造批號"]).intersection(set(lab_b["製造批號"]))
         line_b = line_b[line_b["製造批號"].isin(common_batches)]
         lab_b = lab_b[lab_b["製造批號"].isin(common_batches)]
@@ -196,19 +194,34 @@ st.sidebar.divider()
 st.sidebar.title("🎨 Filter")
 color = st.sidebar.selectbox("Color code", sorted(df_raw["塗料編號"].dropna().unique()), key="sidebar_color")
 
-df_color = df_raw[df_raw["塗料編號"] == color].copy()
+# --- DATA TRUNCATION FEATURE (Ignore Garbage Data) ---
+df_color_full = df_raw[df_raw["塗料編號"] == color].copy()
+global_batch_order_full = df_color_full.sort_values("Time")["製造批號"].drop_duplicates().tolist()
+
+control_batch = get_control_batch(color)
+control_batch_code = get_control_batch_code(df_color_full, control_batch)
+
+st.sidebar.markdown("### ✂️ Data Truncation")
+start_batch = st.sidebar.selectbox(
+    "Start Analysis From Batch:", 
+    global_batch_order_full, 
+    index=0, 
+    help="Select the starting batch. All prior trial/garbage data will be excluded from the dashboard."
+)
+
+start_time = df_color_full[df_color_full["製造批號"] == start_batch]["Time"].min()
+df_color = df_color_full[df_color_full["Time"] >= start_time].copy()
 
 # Synchronized Timeline
 global_batch_order = df_color.sort_values("Time")["製造批號"].drop_duplicates().tolist()
-control_batch = get_control_batch(color)
-control_batch_code = get_control_batch_code(df_color, control_batch)
-control_time = df_color[df_color["製造批號"] == control_batch_code]["Time"].min() if control_batch_code else None
+control_time = df_color_full[df_color_full["製造批號"] == control_batch_code]["Time"].min() if control_batch_code else None
 
+st.sidebar.markdown("### 📅 Date Filter")
 all_years = sorted(df_color["Time"].dt.year.dropna().astype(int).unique())
-selected_years = st.sidebar.multiselect("📅 Year (Leave empty for ALL)", options=all_years, default=[], key="sidebar_year")
+selected_years = st.sidebar.multiselect("Year (Leave empty for ALL)", options=all_years, default=[], key="sidebar_year")
 
 all_months = sorted(df_color["Time"].dt.month.dropna().astype(int).unique())
-selected_months = st.sidebar.multiselect("📅 Month (optional)", options=all_months, default=[], key="sidebar_month")
+selected_months = st.sidebar.multiselect("Month (optional)", options=all_months, default=[], key="sidebar_month")
 
 df = df_color.copy()
 if len(selected_years) > 0: df = df[df["Time"].dt.year.isin(selected_years)]
@@ -217,13 +230,12 @@ if len(selected_months) > 0: df = df[df["Time"].dt.month.isin(selected_months)]
 spc_data = calculate_batch_averages(df)
 
 # =========================================================
-# PLOTTING CORE ENGINES (BULLETPROOF DICTIONARY MAPPING)
+# PLOTTING CORE ENGINES
 # =========================================================
 def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code, glb_order):
     fig, ax = plt.subplots(figsize=(12, 5))
     ax.set_facecolor('#f2f2f2')
 
-    # Ensure intersection (though calculate_batch_averages already did this, this acts as a double safety net)
     valid_batches = set(lab["製造批號"]).intersection(set(line["製造批號"]))
     local_order = [b for b in glb_order if b in valid_batches]
 
@@ -1159,6 +1171,14 @@ elif app_mode == "📄 AI OOC Word Report":
                 if c_time is None: continue
 
                 global_batch_order_c = df_c.sort_values("Time")["製造批號"].drop_duplicates().tolist()
+                
+                # Auto-Trim: Drop ancient garbage data for Word Report readability
+                ctrl_idx = global_batch_order_c.index(cb_code)
+                start_idx = max(0, ctrl_idx - 10)
+                valid_report_batches = global_batch_order_c[start_idx:]
+                df_c = df_c[df_c["製造批號"].isin(valid_report_batches)].copy()
+                global_batch_order_c = valid_report_batches
+
                 spc_c = calculate_batch_averages(df_c)
                 color_has_ooc = False
 
