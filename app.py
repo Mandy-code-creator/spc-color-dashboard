@@ -127,7 +127,7 @@ def get_control_batch(color):
 
 def get_control_batch_code(df_unfiltered, control_batch):
     if control_batch is None or df_unfiltered.empty: return None
-    # Sắp xếp đúng theo thời gian thay vì chữ cái
+    # Sort rigorously by time
     batch_order = df_unfiltered.sort_values("Time")["製造批號"].drop_duplicates().tolist()
     if 1 <= control_batch <= len(batch_order): 
         return batch_order[control_batch - 1]
@@ -150,12 +150,12 @@ def calculate_batch_averages(df_filtered_color):
     res = {}
     for f in ["ΔL", "Δa", "Δb"]:
         tmp = df_filtered_color.copy()
+        
         # LINE
         col_n, col_s = f"正-北 {f}", f"正-南 {f}"
         tmp[col_n] = pd.to_numeric(tmp[col_n], errors='coerce')
         tmp[col_s] = pd.to_numeric(tmp[col_s], errors='coerce')
         tmp["row_avg"] = tmp[[col_n, col_s]].mean(axis=1)
-        # Giữ nguyên thứ tự thời gian sau khi groupby
         line_b = tmp.groupby("製造批號", as_index=False).agg({"Time": "min", "row_avg": "mean"}).rename(columns={"row_avg": "value"}).sort_values("Time").dropna()
         
         # LAB
@@ -188,7 +188,12 @@ color = st.sidebar.selectbox("Color code", sorted(df_raw["塗料編號"].dropna(
 
 df_color = df_raw[df_raw["塗料編號"] == color].copy()
 
-# LẤY MỐC THỜI GIAN ĐỂ LỌC PHASE II CHUẨN XÁC
+# ==============================================================================
+# CRITICAL FIX: Absolute Chronological Timeline
+# ==============================================================================
+# Establish global batch order to prevent Matplotlib categorical misalignments
+global_batch_order = df_color.sort_values("Time")["製造批號"].drop_duplicates().tolist()
+
 control_batch = get_control_batch(color)
 control_batch_code = get_control_batch_code(df_color, control_batch)
 control_time = df_color[df_color["製造批號"] == control_batch_code]["Time"].min() if control_batch_code else None
@@ -205,6 +210,129 @@ if len(selected_months) > 0: df = df[df["Time"].dt.month.isin(selected_months)]
 
 # Calculate shared SPC data
 spc_data = calculate_batch_averages(df)
+
+# =========================================================
+# PLOTTING CORE ENGINES (WITH TIME-SYNCHRONIZATION)
+# =========================================================
+def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code, glb_order):
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.set_facecolor('#f2f2f2')
+
+    # Map categorical batch numbers to strictly chronological X-coordinates
+    lab_x = [glb_order.index(b) for b in lab["製造批號"] if b in glb_order]
+    lab_y = lab[lab["製造批號"].isin(glb_order)]["value"].values
+    line_x = [glb_order.index(b) for b in line["製造批號"] if b in glb_order]
+    line_y = line[line["製造批號"].isin(glb_order)]["value"].values
+
+    # Sort coordinates just in case arrays arrive unsorted
+    if lab_x: lab_x, lab_y = zip(*sorted(zip(lab_x, lab_y)))
+    if line_x: line_x, line_y = zip(*sorted(zip(line_x, line_y)))
+
+    ax.plot(lab_x, lab_y, marker="^", color="#548235", linestyle="-", linewidth=1.5, markersize=8, label="LAB Input")
+    ax.plot(line_x, line_y, marker="o", color="#ffc000", linestyle="-", linewidth=1.5, markersize=8, markerfacecolor="white", markeredgewidth=2, label="LINE Output")
+
+    import matplotlib.transforms as transforms
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+
+    if control_batch_code is not None and control_batch_code in glb_order:
+        ctrl_x = glb_order.index(control_batch_code)
+        # Verify if the control batch is within the viewport range
+        if min(list(lab_x) + list(line_x), default=0) <= ctrl_x <= max(list(lab_x) + list(line_x), default=0):
+            ax.axvline(x=ctrl_x, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
+            ax.text(ctrl_x, 1.02, "  After Control", color="#0070c0", fontsize=14, ha="left", va="bottom", transform=trans)
+            ax.text(ctrl_x, 1.02, "Before Control  ", color="#0070c0", fontsize=14, ha="right", va="bottom", transform=trans)
+
+    if lab_lim[0] is not None and lab_lim[1] is not None and len(lab_y) > 0:
+        lab_y_arr = np.array(lab_y); lab_x_arr = np.array(lab_x)
+        out_lab = (lab_y_arr > lab_lim[1]) | (lab_y_arr < lab_lim[0])
+        ax.plot(lab_x_arr[out_lab], lab_y_arr[out_lab], marker="^", color="red", linestyle="None", markersize=10, zorder=5)
+    
+    if line_lim[0] is not None and line_lim[1] is not None and len(line_y) > 0:
+        line_y_arr = np.array(line_y); line_x_arr = np.array(line_x)
+        out_line = (line_y_arr > line_lim[1]) | (line_y_arr < line_lim[0])
+        ax.plot(line_x_arr[out_line], line_y_arr[out_line], marker="o", color="red", linestyle="None", markersize=10, zorder=5)
+
+    if lab_lim[0] is not None: 
+        ax.axhline(lab_lim[0], color="#7030a0", linestyle="-", linewidth=2, label="LAB LCL")
+        ax.axhline(lab_lim[1], color="#7030a0", linestyle="-", linewidth=2, label="LAB UCL")
+    if line_lim[0] is not None: 
+        ax.axhline(line_lim[0], color="#ff0000", linestyle="--", linewidth=2, label="LINE LCL")
+        ax.axhline(line_lim[1], color="#ff0000", linestyle="--", linewidth=2, label="LINE UCL")
+
+    # Render X-Axis correctly
+    all_x = sorted(list(set(list(lab_x) + list(line_x))))
+    if all_x:
+        ax.set_xticks(all_x)
+        ax.set_xticklabels([glb_order[i] for i in all_x], rotation=45)
+
+    ax.set_title(title, fontsize=15, fontweight="bold", pad=25)
+    ax.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
+    ax.grid(axis="x", visible=False)
+    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
+    fig.subplots_adjust(right=0.8, top=0.8) 
+    return fig
+
+def spc_combined_phase2(lab, line, title, lab_lim, line_lim, control_batch_code, ctrl_time, glb_order):
+    if ctrl_time is None: return None
+    lab2 = lab[lab["Time"] >= ctrl_time]; line2 = line[line["Time"] >= ctrl_time]
+    if lab2.empty and line2.empty: return None
+    
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.set_facecolor('#f2f2f2')
+
+    lab_x = [glb_order.index(b) for b in lab2["製造批號"] if b in glb_order]
+    lab_y = lab2[lab2["製造批號"].isin(glb_order)]["value"].values
+    line_x = [glb_order.index(b) for b in line2["製造批號"] if b in glb_order]
+    line_y = line2[line2["製造批號"].isin(glb_order)]["value"].values
+
+    if lab_x: lab_x, lab_y = zip(*sorted(zip(lab_x, lab_y)))
+    if line_x: line_x, line_y = zip(*sorted(zip(line_x, line_y)))
+
+    if lab_x: ax.plot(lab_x, lab_y, marker="^", color="#548235", linestyle="-", linewidth=1.5, markersize=8, label="LAB Input")
+    if line_x: ax.plot(line_x, line_y, marker="o", color="#ffc000", linestyle="-", linewidth=1.5, markersize=8, markerfacecolor="white", markeredgewidth=2, label="LINE Output")
+
+    import matplotlib.transforms as transforms
+    trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
+    
+    if control_batch_code is not None and control_batch_code in glb_order:
+        ctrl_x = glb_order.index(control_batch_code)
+        if min(list(lab_x) + list(line_x), default=0) <= ctrl_x <= max(list(lab_x) + list(line_x), default=0):
+            ax.axvline(x=ctrl_x, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
+            ax.text(ctrl_x, 1.02, "  After Control (Phase II)", color="#0070c0", fontsize=14, ha="left", va="bottom", transform=trans)
+
+    if lab_lim[0] is not None and lab_lim[1] is not None and len(lab_y) > 0:
+        lab_y_arr = np.array(lab_y); lab_x_arr = np.array(lab_x)
+        out_lab = (lab_y_arr > lab_lim[1]) | (lab_y_arr < lab_lim[0])
+        ax.plot(lab_x_arr[out_lab], lab_y_arr[out_lab], marker="^", color="red", linestyle="None", markersize=10, zorder=6)
+        
+    if line_lim[0] is not None and line_lim[1] is not None and len(line_y) > 0:
+        line_y_arr = np.array(line_y); line_x_arr = np.array(line_x)
+        out_line = (line_y_arr > line_lim[1]) | (line_y_arr < line_lim[0])
+        ax.plot(line_x_arr[out_line], line_y_arr[out_line], marker="o", color="red", linestyle="None", markersize=10, zorder=6)
+
+    if lab_lim[0] is not None: 
+        ax.axhline(lab_lim[0], color="#7030a0", linestyle="-", linewidth=2, label="LAB LCL")
+        ax.axhline(lab_lim[1], color="#7030a0", linestyle="-", linewidth=2, label="LAB UCL")
+    if line_lim[0] is not None: 
+        ax.axhline(line_lim[0], color="#ff0000", linestyle="--", linewidth=2, label="LINE LCL")
+        ax.axhline(line_lim[1], color="#ff0000", linestyle="--", linewidth=2, label="LINE UCL")
+
+    all_x = sorted(list(set(list(lab_x) + list(line_x))))
+    if all_x:
+        ax.set_xticks(all_x)
+        ax.set_xticklabels([glb_order[i] for i in all_x], rotation=45)
+
+    ax.set_title(title, fontsize=15, fontweight="bold", pad=25)
+    ax.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
+    ax.grid(axis="x", visible=False)
+    ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
+    fig.subplots_adjust(right=0.8, top=0.8)
+    return fig
+
+def download(fig, name):
+    buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=200, bbox_inches="tight"); buf.seek(0)
+    st.download_button("📥 Download PNG", buf, name, "image/png", key=f"dl_{name}")
+
 
 # =========================================================
 # VIEW 1: MAIN DASHBOARD
@@ -280,99 +408,11 @@ if app_mode == "🚀 Main Dashboard":
     with col1: st.markdown("#### 🏭 LINE"); st.dataframe(pd.DataFrame(summary_line), use_container_width=True, hide_index=True)
     with col2: st.markdown("#### 🧪 LAB"); st.dataframe(pd.DataFrame(summary_lab), use_container_width=True, hide_index=True)
 
-    def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code):
-        fig, ax = plt.subplots(figsize=(12, 5))
-        ax.set_facecolor('#f2f2f2')
-
-        ax.plot(lab["製造批號"], lab["value"], marker="^", color="#548235", linestyle="-", linewidth=1.5, markersize=8, label="LAB Input")
-        ax.plot(line["製造批號"], line["value"], marker="o", color="#ffc000", linestyle="-", linewidth=1.5, markersize=8, markerfacecolor="white", markeredgewidth=2, label="LINE Output")
-
-        import matplotlib.transforms as transforms
-        trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-
-        if control_batch_code is not None:
-            # We map axvline using the batch code string, which matplotlib translates to coordinate
-            # Check if it exists in the currently displayed X axis to avoid errors
-            if control_batch_code in lab["製造批號"].values or control_batch_code in line["製造批號"].values:
-                ax.axvline(x=control_batch_code, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
-                ax.text(control_batch_code, 1.02, "  After Control", color="#0070c0", fontsize=14, ha="left", va="bottom", transform=trans)
-                ax.text(control_batch_code, 1.02, "Before Control  ", color="#0070c0", fontsize=14, ha="right", va="bottom", transform=trans)
-
-        if lab_lim[0] is not None and lab_lim[1] is not None:
-            out_lab = (lab["value"] > lab_lim[1]) | (lab["value"] < lab_lim[0])
-            ax.plot(lab["製造批號"][out_lab], lab["value"][out_lab], marker="^", color="red", linestyle="None", markersize=10, zorder=5)
-        
-        if line_lim[0] is not None and line_lim[1] is not None:
-            out_line = (line["value"] > line_lim[1]) | (line["value"] < line_lim[0])
-            ax.plot(line["製造批號"][out_line], line["value"][out_line], marker="o", color="red", linestyle="None", markersize=10, zorder=5)
-
-        if lab_lim[0] is not None: 
-            ax.axhline(lab_lim[0], color="#7030a0", linestyle="-", linewidth=2, label="LAB LCL")
-            ax.axhline(lab_lim[1], color="#7030a0", linestyle="-", linewidth=2, label="LAB UCL")
-        if line_lim[0] is not None: 
-            ax.axhline(line_lim[0], color="#ff0000", linestyle="--", linewidth=2, label="LINE LCL")
-            ax.axhline(line_lim[1], color="#ff0000", linestyle="--", linewidth=2, label="LINE UCL")
-
-        ax.set_title(title, fontsize=15, fontweight="bold", pad=25)
-        ax.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
-        ax.grid(axis="x", visible=False)
-        ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
-        ax.tick_params(axis="x", rotation=45)
-        fig.subplots_adjust(right=0.8, top=0.8) 
-        return fig
-
-    def spc_combined_phase2(lab, line, title, lab_lim, line_lim, control_batch_code, control_time):
-        if control_time is None: return None
-        # FILTER BY CHRONOLOGICAL TIME
-        lab2 = lab[lab["Time"] >= control_time]
-        line2 = line[line["Time"] >= control_time]
-        
-        if lab2.empty and line2.empty: return None
-        
-        fig, ax = plt.subplots(figsize=(12, 5))
-        ax.set_facecolor('#f2f2f2')
-
-        if not lab2.empty: ax.plot(lab2["製造批號"], lab2["value"], marker="^", color="#548235", linestyle="-", linewidth=1.5, markersize=8, label="LAB Input")
-        if not line2.empty: ax.plot(line2["製造批號"], line2["value"], marker="o", color="#ffc000", linestyle="-", linewidth=1.5, markersize=8, markerfacecolor="white", markeredgewidth=2, label="LINE Output")
-
-        import matplotlib.transforms as transforms
-        trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
-        
-        if control_batch_code in lab2["製造批號"].values or control_batch_code in line2["製造批號"].values:
-            ax.axvline(x=control_batch_code, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
-            ax.text(control_batch_code, 1.02, "  After Control (Phase II)", color="#0070c0", fontsize=14, ha="left", va="bottom", transform=trans)
-
-        if not lab2.empty and lab_lim[0] is not None:
-            out = (lab2["value"] < lab_lim[0]) | (lab2["value"] > lab_lim[1])
-            ax.plot(lab2["製造批號"][out], lab2["value"][out], marker="^", color="red", linestyle="None", markersize=10, zorder=6)
-        if not line2.empty and line_lim[0] is not None:
-            out = (line2["value"] < line_lim[0]) | (line2["value"] > line_lim[1])
-            ax.plot(line2["製造批號"][out], line2["value"][out], marker="o", color="red", linestyle="None", markersize=10, zorder=6)
-
-        if lab_lim[0] is not None: 
-            ax.axhline(lab_lim[0], color="#7030a0", linestyle="-", linewidth=2, label="LAB LCL")
-            ax.axhline(lab_lim[1], color="#7030a0", linestyle="-", linewidth=2, label="LAB UCL")
-        if line_lim[0] is not None: 
-            ax.axhline(line_lim[0], color="#ff0000", linestyle="--", linewidth=2, label="LINE LCL")
-            ax.axhline(line_lim[1], color="#ff0000", linestyle="--", linewidth=2, label="LINE UCL")
-
-        ax.set_title(title, fontsize=15, fontweight="bold", pad=25)
-        ax.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
-        ax.grid(axis="x", visible=False)
-        ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
-        ax.tick_params(axis="x", rotation=45)
-        fig.subplots_adjust(right=0.8, top=0.8)
-        return fig
-
-    def download(fig, name):
-        buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=200, bbox_inches="tight"); buf.seek(0)
-        st.download_button("📥 Download PNG", buf, name, "image/png", key=f"dl_{name}")
-
     st.markdown("### 📊 CONTROL CHART: LAB-LINE")
     for k in ["ΔL", "Δa", "Δb"]:
         lab_lim = safe_get_limit(color, "LAB", k)
         line_lim = safe_get_limit(color, "LINE", k)
-        fig = spc_combined(spc_data[k]["lab"], spc_data[k]["line"], f"COMBINED {k}", lab_lim, line_lim, control_batch_code)
+        fig = spc_combined(spc_data[k]["lab"], spc_data[k]["line"], f"COMBINED {k}", lab_lim, line_lim, control_batch_code, global_batch_order)
         st.pyplot(fig); download(fig, f"COMBINED_{color}_{k}.png")
 
     st.markdown("---")
@@ -380,7 +420,7 @@ if app_mode == "🚀 Main Dashboard":
     for k in ["ΔL", "Δa", "Δb"]:
         lab_lim = safe_get_limit(color, "LAB", k)
         line_lim = safe_get_limit(color, "LINE", k)
-        fig = spc_combined_phase2(spc_data[k]["lab"], spc_data[k]["line"], f"{k} – LAB + LINE (Phase II)", lab_lim, line_lim, control_batch_code, control_time)
+        fig = spc_combined_phase2(spc_data[k]["lab"], spc_data[k]["line"], f"{k} – LAB + LINE (Phase II)", lab_lim, line_lim, control_batch_code, control_time, global_batch_order)
         if fig is not None: st.pyplot(fig); download(fig, f"COMBINED_PHASE2_{color}_{k}.png")
         else: st.info(f"{k}: Not enough Phase II data")
 
@@ -818,7 +858,15 @@ elif app_mode == "🎛️ Control Limit Calculator":
 
             with col_chart:
                 fig, ax = plt.subplots(figsize=(10, 4.5))
-                ax.plot(res["batch"], res["data"], "o-", color="#808080", alpha=0.5, label="Process Data")
+                ax.set_facecolor('#f2f2f2')
+
+                # Chronological mapping
+                x_vals = [global_batch_order.index(b) for b in res["batch"] if b in global_batch_order]
+                y_vals = res["data"][res["batch"].isin(global_batch_order)].values
+                if x_vals: x_vals, y_vals = zip(*sorted(zip(x_vals, y_vals)))
+
+                ax.plot(x_vals, y_vals, marker="o", color="#808080", linestyle="-", linewidth=1.5, markersize=7, alpha=0.5, label="Process Data")
+                
                 if pd.notnull(res["olcl"]):
                     ax.axhline(res["olcl"], color="black", linestyle="-", linewidth=1.5, label="0. Spec")
                     ax.axhline(res["oucl"], color="black", linestyle="-", linewidth=1.5)
@@ -827,9 +875,14 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 ax.axhline(res["iqr_lcl"], color="#1f77b4", linestyle=":", linewidth=2, label=f"2. IQR (k={res['iqr_k']})")
                 ax.axhline(res["iqr_ucl"], color="#1f77b4", linestyle=":", linewidth=2)
                 ax.axhline(res["m"], color="#2ca02c", linestyle="-.", alpha=0.5, label="Mean")
-                ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=9)
-                ax.grid(True, alpha=0.3)
-                plt.xticks(rotation=45)
+                
+                if x_vals:
+                    ax.set_xticks(x_vals)
+                    ax.set_xticklabels([global_batch_order[i] for i in x_vals], rotation=45)
+
+                ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=9, frameon=True, edgecolor="black")
+                ax.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
+                ax.grid(axis="x", visible=False)
                 fig.subplots_adjust(right=0.75, bottom=0.2)
                 st.pyplot(fig)
                 plt.close(fig)
@@ -1062,6 +1115,7 @@ elif app_mode == "📄 AI OOC Word Report":
             master_ooc_rows = []
             report_data_dict = {} 
 
+            # SCAN ALL COLOR CODES
             for c in all_colors:
                 c_clean = str(c).strip()
                 mask = limit_df["Color_code"].astype(str).str.strip() == c_clean
@@ -1079,6 +1133,8 @@ elif app_mode == "📄 AI OOC Word Report":
 
                 if c_time is None: continue
 
+                # Global chronological array for this specific color code
+                global_batch_order_c = df_c.sort_values("Time")["製造批號"].drop_duplicates().tolist()
                 spc_c = calculate_batch_averages(df_c)
                 color_has_ooc = False
 
@@ -1100,8 +1156,9 @@ elif app_mode == "📄 AI OOC Word Report":
                             color_has_ooc = True
 
                 if color_has_ooc:
-                    report_data_dict[c] = {"spc": spc_c, "cb_code": cb_code}
+                    report_data_dict[c] = {"spc": spc_c, "cb_code": cb_code, "global_order": global_batch_order_c}
 
+            # PROCESS RESULTS AND GENERATE WORD
             if not master_ooc_rows:
                 st.success("✅ Excellent! The system did not detect any out-of-control batches.")
             else:
@@ -1146,28 +1203,40 @@ elif app_mode == "📄 AI OOC Word Report":
                     doc.add_heading(f'Color Code: {color_name}', level=1)
                     color_ooc = df_master_ooc[df_master_ooc["Color"] == color_name]
 
-                    def spc_combined_word(lab, line, title, lab_lim, line_lim, control_batch_code):
+                    def spc_combined_word(lab, line, title, lab_lim, line_lim, control_batch_code, glb_order):
                         fig, ax = plt.subplots(figsize=(10, 4.5))
                         ax.set_facecolor('#f2f2f2')
 
-                        ax.plot(lab["製造批號"], lab["value"], marker="^", color="#548235", linestyle="-", linewidth=1.5, markersize=7, label="LAB Input")
-                        ax.plot(line["製造批號"], line["value"], marker="o", color="#ffc000", linestyle="-", linewidth=1.5, markersize=7, markerfacecolor="white", markeredgewidth=1.5, label="LINE Output")
+                        lab_x = [glb_order.index(b) for b in lab["製造批號"] if b in glb_order]
+                        lab_y = lab[lab["製造批號"].isin(glb_order)]["value"].values
+                        line_x = [glb_order.index(b) for b in line["製造批號"] if b in glb_order]
+                        line_y = line[line["製造批號"].isin(glb_order)]["value"].values
+
+                        if lab_x: lab_x, lab_y = zip(*sorted(zip(lab_x, lab_y)))
+                        if line_x: line_x, line_y = zip(*sorted(zip(line_x, line_y)))
+
+                        ax.plot(lab_x, lab_y, marker="^", color="#548235", linestyle="-", linewidth=1.5, markersize=7, label="LAB Input")
+                        ax.plot(line_x, line_y, marker="o", color="#ffc000", linestyle="-", linewidth=1.5, markersize=7, markerfacecolor="white", markeredgewidth=1.5, label="LINE Output")
 
                         import matplotlib.transforms as transforms
                         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
 
-                        if control_batch_code is not None:
-                            if control_batch_code in lab["製造批號"].values or control_batch_code in line["製造批號"].values:
-                                ax.axvline(x=control_batch_code, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
-                                ax.text(control_batch_code, 1.02, "  After Control", color="#0070c0", fontsize=12, ha="left", va="bottom", transform=trans)
-                                ax.text(control_batch_code, 1.02, "Before Control  ", color="#0070c0", fontsize=12, ha="right", va="bottom", transform=trans)
+                        if control_batch_code is not None and control_batch_code in glb_order:
+                            ctrl_x = glb_order.index(control_batch_code)
+                            if min(list(lab_x) + list(line_x), default=0) <= ctrl_x <= max(list(lab_x) + list(line_x), default=0):
+                                ax.axvline(x=ctrl_x, color="#000000", linestyle=(0, (3, 3)), linewidth=1.5)
+                                ax.text(ctrl_x, 1.02, "  After Control", color="#0070c0", fontsize=12, ha="left", va="bottom", transform=trans)
+                                ax.text(ctrl_x, 1.02, "Before Control  ", color="#0070c0", fontsize=12, ha="right", va="bottom", transform=trans)
 
-                        if lab_lim[0] is not None and lab_lim[1] is not None:
-                            out_lab = (lab["value"] > lab_lim[1]) | (lab["value"] < lab_lim[0])
-                            ax.plot(lab["製造批號"][out_lab], lab["value"][out_lab], marker="^", color="red", linestyle="None", markersize=9, zorder=5)
-                        if line_lim[0] is not None and line_lim[1] is not None:
-                            out_line = (line["value"] > line_lim[1]) | (line["value"] < line_lim[0])
-                            ax.plot(line["製造批號"][out_line], line["value"][out_line], marker="o", color="red", linestyle="None", markersize=9, zorder=5)
+                        if lab_lim[0] is not None and lab_lim[1] is not None and len(lab_y) > 0:
+                            lab_y_arr = np.array(lab_y); lab_x_arr = np.array(lab_x)
+                            out_lab = (lab_y_arr > lab_lim[1]) | (lab_y_arr < lab_lim[0])
+                            ax.plot(lab_x_arr[out_lab], lab_y_arr[out_lab], marker="^", color="red", linestyle="None", markersize=9, zorder=5)
+                        
+                        if line_lim[0] is not None and line_lim[1] is not None and len(line_y) > 0:
+                            line_y_arr = np.array(line_y); line_x_arr = np.array(line_x)
+                            out_line = (line_y_arr > line_lim[1]) | (line_y_arr < line_lim[0])
+                            ax.plot(line_x_arr[out_line], line_y_arr[out_line], marker="o", color="red", linestyle="None", markersize=9, zorder=5)
 
                         if lab_lim[0] is not None: 
                             ax.axhline(lab_lim[0], color="#7030a0", linestyle="-", linewidth=2, label="LAB LCL")
@@ -1176,11 +1245,15 @@ elif app_mode == "📄 AI OOC Word Report":
                             ax.axhline(line_lim[0], color="#ff0000", linestyle="--", linewidth=2, label="LINE LCL")
                             ax.axhline(line_lim[1], color="#ff0000", linestyle="--", linewidth=2, label="LINE UCL")
 
+                        all_x = sorted(list(set(list(lab_x) + list(line_x))))
+                        if all_x:
+                            ax.set_xticks(all_x)
+                            ax.set_xticklabels([glb_order[i] for i in all_x], rotation=45)
+
                         ax.set_title(title, fontsize=13, fontweight="bold", pad=20)
                         ax.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
                         ax.grid(axis="x", visible=False)
                         ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
-                        ax.tick_params(axis="x", rotation=45)
                         fig.subplots_adjust(right=0.75, top=0.8)
                         return fig
 
@@ -1220,8 +1293,9 @@ elif app_mode == "📄 AI OOC Word Report":
 
                             cb_code = data["cb_code"]
                             spc_c = data["spc"]
+                            glb_order_c = data["global_order"]
 
-                            fig = spc_combined_word(spc_c[factor]["lab"], spc_c[factor]["line"], f"{color_name} - COMBINED {factor}", lab_lim, line_lim, cb_code)
+                            fig = spc_combined_word(spc_c[factor]["lab"], spc_c[factor]["line"], f"{color_name} - COMBINED {factor}", lab_lim, line_lim, cb_code, glb_order_c)
                             img_buf = io.BytesIO()
                             fig.savefig(img_buf, format='png', dpi=150, bbox_inches='tight')
                             img_buf.seek(0)
