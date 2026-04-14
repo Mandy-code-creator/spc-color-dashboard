@@ -423,6 +423,8 @@ if app_mode == "🚀 Main Dashboard":
                 # 2. Calculate Overall Stats
                 m_all = df_overall["value"].mean()
                 s_all = df_overall["value"].std()
+                min_all = df_overall["value"].min()
+                max_all = df_overall["value"].max()
                 n_all = len(df_overall)
                 
                 row = {
@@ -431,6 +433,10 @@ if app_mode == "🚀 Main Dashboard":
                     "Phase II Mean": "-",
                     "Overall Std": f"{s_all:.3f}",
                     "Phase II Std": "-",
+                    "Overall Min": f"{min_all:.3f}",
+                    "Phase II Min": "-",
+                    "Overall Max": f"{max_all:.3f}",
+                    "Phase II Max": "-",
                     "Overall (n)": n_all,
                     "Phase II (n)": "-"
                 }
@@ -441,6 +447,8 @@ if app_mode == "🚀 Main Dashboard":
                     if not df_p2.empty:
                         m_p2 = df_p2["value"].mean()
                         s_p2 = df_p2["value"].std()
+                        min_p2 = df_p2["value"].min()
+                        max_p2 = df_p2["value"].max()
                         n_p2 = len(df_p2)
                         
                         # Format Phase II Mean with Delta for ΔE (Lower is better)
@@ -451,7 +459,7 @@ if app_mode == "🚀 Main Dashboard":
                             elif imp_m < 0: mean_str += f" (↑ {-imp_m:.1f}%)"
                         row["Phase II Mean"] = mean_str
                         
-                        # Format Phase II Std with Delta for all factors (Lower variation is always better)
+                        # Format Phase II Std with Delta for all factors
                         std_str = f"{s_p2:.3f}"
                         if pd.notna(s_all) and pd.notna(s_p2) and s_all > 0:
                             imp_s = ((s_all - s_p2) / s_all) * 100
@@ -459,12 +467,22 @@ if app_mode == "🚀 Main Dashboard":
                             elif imp_s < 0: std_str += f" (↑ {-imp_s:.1f}%)"
                         row["Phase II Std"] = std_str
                         
+                        row["Phase II Min"] = f"{min_p2:.3f}"
+                        row["Phase II Max"] = f"{max_p2:.3f}"
                         row["Phase II (n)"] = n_p2
                         
                 rows.append(row)
             except Exception:
                 continue
-        return pd.DataFrame(rows)
+                
+        df_out = pd.DataFrame(rows)
+        if not df_out.empty:
+            cols_order = ["Factor", "Overall Mean", "Phase II Mean", "Overall Std", "Phase II Std", 
+                          "Overall Min", "Phase II Min", "Overall Max", "Phase II Max", 
+                          "Overall (n)", "Phase II (n)"]
+            df_out = df_out[cols_order]
+            
+        return df_out
 
     df_summary_line = build_comparison_table("line")
     df_summary_lab = build_comparison_table("lab")
