@@ -689,7 +689,7 @@ if app_mode == "🚀 Main Dashboard":
                     ax.set_xlim(mean - 5 * std, mean + 5 * std)
                     ax.set_xlabel("Average Thickness")
                     ax.set_ylabel("Density")
-                    ax.set_grid(True, linestyle="--", alpha=0.4)
+                    ax.grid(True, linestyle="--", alpha=0.4)
                     ax.legend()
                     st.pyplot(fig)
 
