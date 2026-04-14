@@ -168,7 +168,7 @@ def calculate_batch_averages(df_filtered_color):
         tmp[col_lab] = pd.to_numeric(tmp[col_lab], errors='coerce')
         lab_b = tmp.groupby("製造批號", as_index=False).agg({"Time": "min", col_lab: "mean"}).rename(columns={col_lab: "value"}).sort_values("Time").dropna()
         
-        # CRITICAL FIX: Enforce Strict 1:1 Intersection (Drop batches missing in either LAB or LINE)
+        # CRITICAL FIX: Enforce Strict 1:1 Intersection
         common_batches = set(line_b["製造批號"]).intersection(set(lab_b["製造批號"]))
         line_b = line_b[line_b["製造批號"].isin(common_batches)]
         lab_b = lab_b[lab_b["製造批號"].isin(common_batches)]
@@ -217,13 +217,12 @@ if len(selected_months) > 0: df = df[df["Time"].dt.month.isin(selected_months)]
 spc_data = calculate_batch_averages(df)
 
 # =========================================================
-# PLOTTING CORE ENGINES (BULLETPROOF DICTIONARY MAPPING)
+# PLOTTING CORE ENGINES
 # =========================================================
 def spc_combined(lab, line, title, lab_lim, line_lim, control_batch_code, glb_order):
     fig, ax = plt.subplots(figsize=(12, 5))
     ax.set_facecolor('#f2f2f2')
 
-    # Ensure intersection (though calculate_batch_averages already did this, this acts as a double safety net)
     valid_batches = set(lab["製造批號"]).intersection(set(line["製造批號"]))
     local_order = [b for b in glb_order if b in valid_batches]
 
@@ -401,27 +400,6 @@ if app_mode == "🚀 Main Dashboard":
 
     st.markdown(f"⏱ **{t_min} → {t_max} | n = {n_batch} batches | Year: {display_year} | Month: {display_month}**")
 
-    with st.expander("🔎 Batch Summary (Before SPC Aggregation)"):
-        if not df.empty:
-            batch_summary = (
-                df.groupby("製造批號", as_index=False)
-                .agg(
-                    First_Time=("Time", "min"),
-                    LAB_ΔL=("入料檢測 ΔL 正面", "mean"), LAB_Δa=("入料檢測 Δa 正面", "mean"), LAB_Δb=("入料檢測 Δb 正面", "mean"),
-                    LINE_ΔL_N=("正-北 ΔL", "mean"), LINE_ΔL_S=("正-南 ΔL", "mean"),
-                    LINE_Δa_N=("正-北 Δa", "mean"), LINE_Δa_S=("正-南 Δa", "mean"),
-                    LINE_Δb_N=("正-北 Δb", "mean"), LINE_Δb_S=("正-南 Δb", "mean"),
-                    Rows_in_Batch=("製造批號", "count")
-                ).sort_values("First_Time")
-            )
-            batch_summary["LINE_ΔL"] = batch_summary[["LINE_ΔL_N", "LINE_ΔL_S"]].mean(axis=1)
-            batch_summary["LINE_Δa"] = batch_summary[["LINE_Δa_N", "LINE_Δa_S"]].mean(axis=1)
-            batch_summary["LINE_Δb"] = batch_summary[["LINE_Δb_N", "LINE_Δb_S"]].mean(axis=1)
-            display_cols = ["製造批號", "First_Time", "LAB_ΔL", "LAB_Δa", "LAB_Δb", "LINE_ΔL", "LINE_Δa", "LINE_Δb", "Rows_in_Batch"]
-            st.dataframe(batch_summary[display_cols], use_container_width=True, hide_index=True)
-        else:
-            st.warning("No data after filtering.")
-
     # =========================================================
     # EXECUTIVE SUMMARY STATISTICS (OVERALL VS. PHASE II)
     # =========================================================
@@ -508,36 +486,28 @@ if app_mode == "🚀 Main Dashboard":
             st.dataframe(df_summary_lab, use_container_width=True, hide_index=True)
         else:
             st.warning("No lab data available.")
-    # --- ADD ΔE CALCULATION FOR SUMMARY TABLE ---
-    def calc_dE_summary(source_key):
-        try:
-            # Extract L, a, b values and merge by Batch Number to calculate true point-by-point ΔE
-            df_L = spc_data["ΔL"][source_key][["製造批號", "value"]].rename(columns={"value": "L"})
-            df_a = spc_data["Δa"][source_key][["製造批號", "value"]].rename(columns={"value": "a"})
-            df_b = spc_data["Δb"][source_key][["製造批號", "value"]].rename(columns={"value": "b"})
-            
-            df_merge = df_L.merge(df_a, on="製造批號").merge(df_b, on="製造批號")
-            dE_vals = np.sqrt(df_merge["L"]**2 + df_merge["a"]**2 + df_merge["b"]**2).dropna()
-            
-            if not dE_vals.empty:
-                return {"Factor": "ΔE", "Min": round(dE_vals.min(), 2), "Max": round(dE_vals.max(), 2), "Mean": round(dE_vals.mean(), 2), "Std Dev": round(dE_vals.std(), 2), "n": dE_vals.count()}
-        except Exception:
-            return None
 
-    line_dE = calc_dE_summary("line")
-    if line_dE: summary_line.append(line_dE)
-    
-    lab_dE = calc_dE_summary("lab")
-    if lab_dE: summary_lab.append(lab_dE)
 
-    st.markdown("### 📋 Summary Statistics")
-    col1, col2 = st.columns(2)
-    with col1: 
-        st.markdown("#### 🏭 LINE")
-        st.dataframe(pd.DataFrame(summary_line), use_container_width=True, hide_index=True)
-    with col2: 
-        st.markdown("#### 🧪 LAB")
-        st.dataframe(pd.DataFrame(summary_lab), use_container_width=True, hide_index=True)
+    with st.expander("🔎 Batch Summary (Before SPC Aggregation)"):
+        if not df.empty:
+            batch_summary = (
+                df.groupby("製造批號", as_index=False)
+                .agg(
+                    First_Time=("Time", "min"),
+                    LAB_ΔL=("入料檢測 ΔL 正面", "mean"), LAB_Δa=("入料檢測 Δa 正面", "mean"), LAB_Δb=("入料檢測 Δb 正面", "mean"),
+                    LINE_ΔL_N=("正-北 ΔL", "mean"), LINE_ΔL_S=("正-南 ΔL", "mean"),
+                    LINE_Δa_N=("正-北 Δa", "mean"), LINE_Δa_S=("正-南 Δa", "mean"),
+                    LINE_Δb_N=("正-北 Δb", "mean"), LINE_Δb_S=("正-南 Δb", "mean"),
+                    Rows_in_Batch=("製造批號", "count")
+                ).sort_values("First_Time")
+            )
+            batch_summary["LINE_ΔL"] = batch_summary[["LINE_ΔL_N", "LINE_ΔL_S"]].mean(axis=1)
+            batch_summary["LINE_Δa"] = batch_summary[["LINE_Δa_N", "LINE_Δa_S"]].mean(axis=1)
+            batch_summary["LINE_Δb"] = batch_summary[["LINE_Δb_N", "LINE_Δb_S"]].mean(axis=1)
+            display_cols = ["製造批號", "First_Time", "LAB_ΔL", "LAB_Δa", "LAB_Δb", "LINE_ΔL", "LINE_Δa", "LINE_Δb", "Rows_in_Batch"]
+            st.dataframe(batch_summary[display_cols], use_container_width=True, hide_index=True)
+        else:
+            st.warning("No data after filtering.")
 
     st.markdown("### 📊 CONTROL CHART: LAB-LINE")
     for k in ["ΔL", "Δa", "Δb"]:
@@ -719,7 +689,7 @@ if app_mode == "🚀 Main Dashboard":
                     ax.set_xlim(mean - 5 * std, mean + 5 * std)
                     ax.set_xlabel("Average Thickness")
                     ax.set_ylabel("Density")
-                    ax.grid(True, linestyle="--", alpha=0.4)
+                    ax.set_grid(True, linestyle="--", alpha=0.4)
                     ax.legend()
                     st.pyplot(fig)
 
