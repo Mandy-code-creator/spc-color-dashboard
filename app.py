@@ -422,15 +422,92 @@ if app_mode == "🚀 Main Dashboard":
         else:
             st.warning("No data after filtering.")
 
-    summary_line, summary_lab = [], []
-    for k in ["ΔL", "Δa", "Δb"]:
-        line_values = spc_data[k]["line"]["value"].dropna()
-        if not line_values.empty:
-            summary_line.append({"Factor": k, "Min": round(line_values.min(), 2), "Max": round(line_values.max(), 2), "Mean": round(line_values.mean(), 2), "Std Dev": round(line_values.std(), 2), "n": line_values.count()})
-        lab_values = spc_data[k]["lab"]["value"].dropna()
-        if not lab_values.empty:
-            summary_lab.append({"Factor": k, "Min": round(lab_values.min(), 2), "Max": round(lab_values.max(), 2), "Mean": round(lab_values.mean(), 2), "Std Dev": round(lab_values.std(), 2), "n": lab_values.count()})
+    # =========================================================
+    # EXECUTIVE SUMMARY STATISTICS (OVERALL VS. PHASE II)
+    # =========================================================
+    def build_comparison_table(source_key):
+        rows = []
+        for k in ["ΔL", "Δa", "Δb", "ΔE"]:
+            try:
+                # 1. Fetch Data (Handle normal factors vs ΔE)
+                if k != "ΔE":
+                    df_overall = spc_data[k][source_key].dropna(subset=["value"]).copy()
+                else:
+                    df_L = spc_data["ΔL"][source_key][["製造批號", "Time", "value"]].rename(columns={"value": "L"})
+                    df_a = spc_data["Δa"][source_key][["製造批號", "value"]].rename(columns={"value": "a"})
+                    df_b = spc_data["Δb"][source_key][["製造批號", "value"]].rename(columns={"value": "b"})
+                    df_overall = df_L.merge(df_a, on="製造批號").merge(df_b, on="製造批號")
+                    df_overall["value"] = np.sqrt(df_overall["L"]**2 + df_overall["a"]**2 + df_overall["b"]**2)
+                    df_overall = df_overall.dropna(subset=["value"]).copy()
+                
+                if df_overall.empty: continue
+                
+                # 2. Calculate Overall Stats
+                m_all = df_overall["value"].mean()
+                s_all = df_overall["value"].std()
+                n_all = len(df_overall)
+                
+                row = {
+                    "Factor": f"**{k}**",
+                    "Overall Mean": f"{m_all:.3f}",
+                    "Phase II Mean": "-",
+                    "Overall Std": f"{s_all:.3f}",
+                    "Phase II Std": "-",
+                    "Overall (n)": n_all,
+                    "Phase II (n)": "-"
+                }
+                
+                # 3. Calculate Phase II Stats (if available) & Improvement
+                if control_time is not None:
+                    df_p2 = df_overall[df_overall["Time"] >= control_time]
+                    if not df_p2.empty:
+                        m_p2 = df_p2["value"].mean()
+                        s_p2 = df_p2["value"].std()
+                        n_p2 = len(df_p2)
+                        
+                        # Format Phase II Mean with Delta for ΔE (Lower is better)
+                        mean_str = f"{m_p2:.3f}"
+                        if k == "ΔE" and m_all > 0:
+                            imp_m = ((m_all - m_p2) / m_all) * 100
+                            if imp_m > 0: mean_str += f" (↓ {imp_m:.1f}%)"
+                            elif imp_m < 0: mean_str += f" (↑ {-imp_m:.1f}%)"
+                        row["Phase II Mean"] = mean_str
+                        
+                        # Format Phase II Std with Delta for all factors (Lower variation is always better)
+                        std_str = f"{s_p2:.3f}"
+                        if pd.notna(s_all) and pd.notna(s_p2) and s_all > 0:
+                            imp_s = ((s_all - s_p2) / s_all) * 100
+                            if imp_s > 0: std_str += f" (↓ {imp_s:.1f}%)"
+                            elif imp_s < 0: std_str += f" (↑ {-imp_s:.1f}%)"
+                        row["Phase II Std"] = std_str
+                        
+                        row["Phase II (n)"] = n_p2
+                        
+                rows.append(row)
+            except Exception:
+                continue
+        return pd.DataFrame(rows)
 
+    df_summary_line = build_comparison_table("line")
+    df_summary_lab = build_comparison_table("lab")
+
+    st.markdown("### 📋 Executive Performance Summary (Overall vs. Phase II)")
+    st.info("💡 **How to read:** Arrows (↓) in Phase II indicate a percentage reduction in color drift (Mean ΔE) or process variation (Std). **Lower is better.**")
+    
+    col_sum1, col_sum2 = st.columns(2)
+    with col_sum1: 
+        st.markdown("#### 🏭 LINE (Production)")
+        if not df_summary_line.empty:
+            st.dataframe(df_summary_line, use_container_width=True, hide_index=True)
+        else:
+            st.warning("No line data available.")
+            
+    with col_sum2: 
+        st.markdown("#### 🧪 LAB (Input)")
+        if not df_summary_lab.empty:
+            st.dataframe(df_summary_lab, use_container_width=True, hide_index=True)
+        else:
+            st.warning("No lab data available.")
     # --- ADD ΔE CALCULATION FOR SUMMARY TABLE ---
     def calc_dE_summary(source_key):
         try:
