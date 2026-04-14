@@ -430,10 +430,37 @@ if app_mode == "🚀 Main Dashboard":
         lab_values = spc_data[k]["lab"]["value"].dropna()
         if not lab_values.empty:
             summary_lab.append({"Factor": k, "Min": round(lab_values.min(), 2), "Max": round(lab_values.max(), 2), "Mean": round(lab_values.mean(), 2), "Std Dev": round(lab_values.std(), 2), "n": lab_values.count()})
+
+    # --- ADD ΔE CALCULATION FOR SUMMARY TABLE ---
+    def calc_dE_summary(source_key):
+        try:
+            # Extract L, a, b values and merge by Batch Number to calculate true point-by-point ΔE
+            df_L = spc_data["ΔL"][source_key][["製造批號", "value"]].rename(columns={"value": "L"})
+            df_a = spc_data["Δa"][source_key][["製造批號", "value"]].rename(columns={"value": "a"})
+            df_b = spc_data["Δb"][source_key][["製造批號", "value"]].rename(columns={"value": "b"})
+            
+            df_merge = df_L.merge(df_a, on="製造批號").merge(df_b, on="製造批號")
+            dE_vals = np.sqrt(df_merge["L"]**2 + df_merge["a"]**2 + df_merge["b"]**2).dropna()
+            
+            if not dE_vals.empty:
+                return {"Factor": "ΔE", "Min": round(dE_vals.min(), 2), "Max": round(dE_vals.max(), 2), "Mean": round(dE_vals.mean(), 2), "Std Dev": round(dE_vals.std(), 2), "n": dE_vals.count()}
+        except Exception:
+            return None
+
+    line_dE = calc_dE_summary("line")
+    if line_dE: summary_line.append(line_dE)
+    
+    lab_dE = calc_dE_summary("lab")
+    if lab_dE: summary_lab.append(lab_dE)
+
     st.markdown("### 📋 Summary Statistics")
     col1, col2 = st.columns(2)
-    with col1: st.markdown("#### 🏭 LINE"); st.dataframe(pd.DataFrame(summary_line), use_container_width=True, hide_index=True)
-    with col2: st.markdown("#### 🧪 LAB"); st.dataframe(pd.DataFrame(summary_lab), use_container_width=True, hide_index=True)
+    with col1: 
+        st.markdown("#### 🏭 LINE")
+        st.dataframe(pd.DataFrame(summary_line), use_container_width=True, hide_index=True)
+    with col2: 
+        st.markdown("#### 🧪 LAB")
+        st.dataframe(pd.DataFrame(summary_lab), use_container_width=True, hide_index=True)
 
     st.markdown("### 📊 CONTROL CHART: LAB-LINE")
     for k in ["ΔL", "Δa", "Δb"]:
