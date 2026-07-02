@@ -1527,11 +1527,13 @@ elif app_mode == "📈 I-MR Chart (Coil-Level)":
 
             st.markdown("---")
             st.markdown(f"### 📊 Individual (I) Chart - {factor_opt} ({source_opt})")
-            fig_i, ax_i = plt.subplots(figsize=(12, 6))
+            
+            # Kích thước rộng hơn để dàn trải data đều và chuyên nghiệp
+            fig_i, ax_i = plt.subplots(figsize=(14, 6))
             ax_i.set_facecolor('#f2f2f2')
             
-            # 1. Plot actual data points (Base line)
-            ax_i.plot(df_imr["Coil No."], df_imr[target_col], marker='o', color='#404040', linestyle='-', linewidth=1.5, markersize=6, label="Individual Value")
+            # 1. Plot actual data points (Base line) - Sử dụng màu Xanh dương đậm (#003366)
+            ax_i.plot(df_imr["Coil No."], df_imr[target_col], marker='o', color='#003366', linestyle='-', linewidth=1.5, markersize=6, label="Individual Value")
             
             # 2. Highlight Out-of-Control (3-Sigma) points in RED
             ooc_i_mask = (df_imr[target_col] > ucl_i) | (df_imr[target_col] < lcl_i)
@@ -1552,16 +1554,16 @@ elif app_mode == "📈 I-MR Chart (Coil-Level)":
             # Smart X-Axis Ticks
             if len(df_imr) > 40:
                 ax_i.set_xticks(ax_i.get_xticks()[::len(df_imr)//30])
-            ax_i.set_xticklabels(ax_i.get_xticklabels(), rotation=45, ha='right', fontsize=8)
+            ax_i.set_xticklabels(ax_i.get_xticklabels(), rotation=45, ha='right', fontsize=9)
 
             # Title and Labels
-            ax_i.set_title(f"I-Chart: {color} | {factor_opt} ({source_opt})\nTimeframe: {date_str}", fontsize=14, fontweight="bold", pad=15)
-            ax_i.set_ylabel("Measured Value")
+            ax_i.set_title(f"I-Chart: {color} | {factor_opt} ({source_opt})\nTimeframe: {date_str}", fontsize=15, fontweight="bold", pad=15)
+            ax_i.set_ylabel("Measured Value", fontsize=11)
             ax_i.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
             
             # Legend Configuration
             ax_i.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
-            fig_i.subplots_adjust(right=0.75, bottom=0.2)
+            fig_i.subplots_adjust(right=0.8, bottom=0.2)
             
             st.pyplot(fig_i)
             plt.close(fig_i)
@@ -1570,11 +1572,13 @@ elif app_mode == "📈 I-MR Chart (Coil-Level)":
             # MOVING RANGE (MR) CHART PLOTTING
             # ---------------------------------------------------------
             st.markdown(f"### 📉 Moving Range (MR) Chart - {factor_opt} ({source_opt})")
-            fig_mr, ax_mr = plt.subplots(figsize=(12, 5))
+            
+            # Kích thước đồng bộ với I-Chart
+            fig_mr, ax_mr = plt.subplots(figsize=(14, 5))
             ax_mr.set_facecolor('#f2f2f2')
             
-            # 1. Plot actual data points (Base line)
-            ax_mr.plot(df_imr["Coil No."], df_imr["MR"], marker='s', color='#800080', linestyle='-', linewidth=1.5, markersize=6, label="Moving Range")
+            # 1. Plot actual data points (Base line) - Sử dụng màu Xanh dương đậm (#003366)
+            ax_mr.plot(df_imr["Coil No."], df_imr["MR"], marker='s', color='#003366', linestyle='-', linewidth=1.5, markersize=6, label="Moving Range")
             
             # 2. Highlight Out-of-Control points in RED
             ooc_mr_mask = (df_imr["MR"] > ucl_mr)
@@ -1588,14 +1592,19 @@ elif app_mode == "📈 I-MR Chart (Coil-Level)":
 
             if len(df_imr) > 40:
                 ax_mr.set_xticks(ax_mr.get_xticks()[::len(df_imr)//30])
-            ax_mr.set_xticklabels(ax_mr.get_xticklabels(), rotation=45, ha='right', fontsize=8)
+            ax_mr.set_xticklabels(ax_mr.get_xticklabels(), rotation=45, ha='right', fontsize=9)
 
             ax_mr.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
             ax_mr.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
-            ax_mr.set_ylabel("Range |X(i) - X(i-1)|")
-            fig_mr.subplots_adjust(right=0.75, bottom=0.2)
+            ax_mr.set_ylabel("Range |X(i) - X(i-1)|", fontsize=11)
+            fig_mr.subplots_adjust(right=0.8, bottom=0.2)
+            
             st.pyplot(fig_mr)
             plt.close(fig_mr)
+
+            # ---------------------------------------------------------
+            # COIL LEVEL DATA TABLE
+            # ---------------------------------------------------------
 
             # ---------------------------------------------------------
             # COIL LEVEL DATA TABLE
