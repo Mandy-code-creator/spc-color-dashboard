@@ -1514,28 +1514,55 @@ elif app_mode == "📈 I-MR Chart (Coil-Level)":
             ucl_mr = D4 * mean_mr
 
             # ---------------------------------------------------------
+            # ---------------------------------------------------------
             # INDIVIDUAL (I) CHART PLOTTING
             # ---------------------------------------------------------
+            # Get date range for the title
+            t_min = df_imr["Time"].min().strftime("%Y-%m-%d")
+            t_max = df_imr["Time"].max().strftime("%Y-%m-%d")
+            date_str = f"{t_min} to {t_max}"
+
+            # Fetch Spec Limits from Google Sheet
+            spec_lcl, spec_ucl = safe_get_limit(color, source_opt, factor_opt)
+
             st.markdown("---")
             st.markdown(f"### 📊 Individual (I) Chart - {factor_opt} ({source_opt})")
-            fig_i, ax_i = plt.subplots(figsize=(12, 4.5))
+            fig_i, ax_i = plt.subplots(figsize=(12, 6))
             ax_i.set_facecolor('#f2f2f2')
             
+            # 1. Plot actual data points (Base line)
             ax_i.plot(df_imr["Coil No."], df_imr[target_col], marker='o', color='#404040', linestyle='-', linewidth=1.5, markersize=6, label="Individual Value")
             
-            ax_i.axhline(mean_x, color="DeepSkyBlue", linestyle="-", linewidth=2, label=f"Mean (X) = {mean_x:.3f}")
-            ax_i.axhline(ucl_i, color="#d62728", linestyle="--", linewidth=1.5, label=f"UCL = {ucl_i:.3f}")
-            ax_i.axhline(lcl_i, color="#d62728", linestyle="--", linewidth=1.5, label=f"LCL = {lcl_i:.3f}")
+            # 2. Highlight Out-of-Control (3-Sigma) points in RED
+            ooc_i_mask = (df_imr[target_col] > ucl_i) | (df_imr[target_col] < lcl_i)
+            if ooc_i_mask.any():
+                ax_i.scatter(df_imr[ooc_i_mask]["Coil No."], df_imr[ooc_i_mask][target_col], color="red", s=80, zorder=5, label="🚨 Out of Control (3σ)")
+
+            # 3. Plot Statistical Limits (Calculated from Data)
+            ax_i.axhline(mean_x, color="DeepSkyBlue", linestyle="-", linewidth=2.5, label=f"Mean (X) = {mean_x:.3f}")
+            ax_i.axhline(ucl_i, color="#d62728", linestyle="--", linewidth=1.5, label=f"Stat UCL (3σ) = {ucl_i:.3f}")
+            ax_i.axhline(lcl_i, color="#d62728", linestyle="--", linewidth=1.5, label=f"Stat LCL (3σ) = {lcl_i:.3f}")
             
+            # 4. Plot Specification Limits (From Google Sheet)
+            if spec_lcl is not None:
+                ax_i.axhline(spec_lcl, color="#7030a0", linestyle="-", linewidth=2, label=f"Spec LCL = {spec_lcl}")
+            if spec_ucl is not None:
+                ax_i.axhline(spec_ucl, color="#7030a0", linestyle="-", linewidth=2, label=f"Spec UCL = {spec_ucl}")
+
             # Smart X-Axis Ticks
             if len(df_imr) > 40:
                 ax_i.set_xticks(ax_i.get_xticks()[::len(df_imr)//30])
             ax_i.set_xticklabels(ax_i.get_xticklabels(), rotation=45, ha='right', fontsize=8)
 
-            ax_i.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
-            ax_i.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
+            # Title and Labels
+            ax_i.set_title(f"I-Chart: {color} | {factor_opt} ({source_opt})\nTimeframe: {date_str}", fontsize=14, fontweight="bold", pad=15)
             ax_i.set_ylabel("Measured Value")
-            fig_i.subplots_adjust(right=0.8, bottom=0.2)
+            ax_i.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
+            
+            # Legend Configuration
+            ax_i.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
+            fig_i.subplots_adjust(right=0.75, bottom=0.2)
+            
             st.pyplot(fig_i)
             plt.close(fig_i)
 
@@ -1543,11 +1570,18 @@ elif app_mode == "📈 I-MR Chart (Coil-Level)":
             # MOVING RANGE (MR) CHART PLOTTING
             # ---------------------------------------------------------
             st.markdown(f"### 📉 Moving Range (MR) Chart - {factor_opt} ({source_opt})")
-            fig_mr, ax_mr = plt.subplots(figsize=(12, 4.5))
+            fig_mr, ax_mr = plt.subplots(figsize=(12, 5))
             ax_mr.set_facecolor('#f2f2f2')
             
+            # 1. Plot actual data points (Base line)
             ax_mr.plot(df_imr["Coil No."], df_imr["MR"], marker='s', color='#800080', linestyle='-', linewidth=1.5, markersize=6, label="Moving Range")
             
+            # 2. Highlight Out-of-Control points in RED
+            ooc_mr_mask = (df_imr["MR"] > ucl_mr)
+            if ooc_mr_mask.any():
+                ax_mr.scatter(df_imr[ooc_mr_mask]["Coil No."], df_imr[ooc_mr_mask]["MR"], color="red", marker='s', s=80, zorder=5, label="🚨 Out of Control (3σ)")
+
+            # 3. Plot Limits
             ax_mr.axhline(mean_mr, color="DeepSkyBlue", linestyle="-", linewidth=2, label=f"Mean (MR) = {mean_mr:.3f}")
             ax_mr.axhline(ucl_mr, color="#d62728", linestyle="--", linewidth=1.5, label=f"UCL = {ucl_mr:.3f}")
             ax_mr.axhline(0, color="#d62728", linestyle="--", linewidth=1.5, label="LCL = 0.000")
@@ -1559,7 +1593,7 @@ elif app_mode == "📈 I-MR Chart (Coil-Level)":
             ax_mr.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
             ax_mr.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
             ax_mr.set_ylabel("Range |X(i) - X(i-1)|")
-            fig_mr.subplots_adjust(right=0.8, bottom=0.2)
+            fig_mr.subplots_adjust(right=0.75, bottom=0.2)
             st.pyplot(fig_mr)
             plt.close(fig_mr)
 
