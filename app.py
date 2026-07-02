@@ -187,7 +187,8 @@ app_mode = st.sidebar.radio(
         "📋 Limit Status Summary", 
         "🎛️ Control Limit Calculator",
         "🔬 Lab vs Line Scale-up",
-        "📄 AI OOC Word Report"
+        "📄 AI OOC Word Report",
+        "📈 I-MR Chart (Coil-Level)" # THÊM DÒNG NÀY VÀO MENU
     ],
     label_visibility="collapsed"
 )
@@ -1449,4 +1450,130 @@ elif app_mode == "📄 AI OOC Word Report":
                     data=report_buf,
                     file_name=f"System_OOC_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+# =========================================================
+# VIEW 6: I-MR CHART (COIL-LEVEL)
+# =========================================================
+elif app_mode == "📈 I-MR Chart (Coil-Level)":
+    st.title("📈 Individual - Moving Range (I-MR) Chart")
+    st.markdown("Coil-level statistical process control analysis without batch aggregation.")
+
+    st.subheader("⚙️ Configuration")
+    col_cfg1, col_cfg2 = st.columns(2)
+    with col_cfg1:
+        source_opt = st.radio("Select Data Source:", ["LINE", "LAB"], horizontal=True, key="imr_source")
+    with col_cfg2:
+        factor_opt = st.selectbox("Select Color Factor:", ["ΔL", "Δa", "Δb", "ΔE"], key="imr_factor")
+
+    # Map the correct column based on user selection
+    target_col = None
+    df_imr_base = df.copy()
+
+    if source_opt == "LINE":
+        if factor_opt == "ΔE":
+            st.warning("⚠️ ΔE is not directly pre-calculated for LINE in raw data. Please select ΔL, Δa, or Δb.")
+        else:
+            col_n, col_s = f"正-北 {factor_opt}", f"正-南 {factor_opt}"
+            if col_n in df_imr_base.columns and col_s in df_imr_base.columns:
+                df_imr_base["Coil_Value"] = df_imr_base[[col_n, col_s]].mean(axis=1)
+                target_col = "Coil_Value"
+            else:
+                st.error(f"❌ Missing LINE columns for {factor_opt}")
+    else: # LAB
+        if factor_opt == "ΔE":
+            target_col = "Average value ΔE 正面"
+        else:
+            target_col = f"入料檢測 {factor_opt} 正面"
+            if target_col not in df_imr_base.columns:
+                target_col = f"Average value {factor_opt} 正面"
+
+    if target_col and target_col in df_imr_base.columns:
+        # Strict Coil-Level Filtering: Drop missing values, sort chronologically by time
+        df_imr = df_imr_base.dropna(subset=["Coil No.", "Time", target_col]).sort_values("Time").copy()
+        
+        # Ensure 1 row = 1 unique coil (take the first chronological record per coil)
+        df_imr = df_imr.drop_duplicates(subset=["Coil No."], keep="first").reset_index(drop=True)
+
+        if len(df_imr) < 2:
+            st.warning("⚠️ Not enough coil data to generate an I-MR chart (minimum 2 coils required).")
+        else:
+            # ---------------------------------------------------------
+            # STATISTICAL CALCULATIONS (I-MR for n=2)
+            # ---------------------------------------------------------
+            df_imr["MR"] = df_imr[target_col].diff().abs()
+            
+            mean_x = df_imr[target_col].mean()
+            mean_mr = df_imr["MR"].mean()
+
+            # SPC Constants for Moving Range of size n=2
+            E2 = 2.66
+            D4 = 3.267
+
+            ucl_i = mean_x + E2 * mean_mr
+            lcl_i = mean_x - E2 * mean_mr
+            ucl_mr = D4 * mean_mr
+
+            # ---------------------------------------------------------
+            # INDIVIDUAL (I) CHART PLOTTING
+            # ---------------------------------------------------------
+            st.markdown("---")
+            st.markdown(f"### 📊 Individual (I) Chart - {factor_opt} ({source_opt})")
+            fig_i, ax_i = plt.subplots(figsize=(12, 4.5))
+            ax_i.set_facecolor('#f2f2f2')
+            
+            ax_i.plot(df_imr["Coil No."], df_imr[target_col], marker='o', color='#404040', linestyle='-', linewidth=1.5, markersize=6, label="Individual Value")
+            
+            ax_i.axhline(mean_x, color="DeepSkyBlue", linestyle="-", linewidth=2, label=f"Mean (X) = {mean_x:.3f}")
+            ax_i.axhline(ucl_i, color="#d62728", linestyle="--", linewidth=1.5, label=f"UCL = {ucl_i:.3f}")
+            ax_i.axhline(lcl_i, color="#d62728", linestyle="--", linewidth=1.5, label=f"LCL = {lcl_i:.3f}")
+            
+            # Smart X-Axis Ticks
+            if len(df_imr) > 40:
+                ax_i.set_xticks(ax_i.get_xticks()[::len(df_imr)//30])
+            ax_i.set_xticklabels(ax_i.get_xticklabels(), rotation=45, ha='right', fontsize=8)
+
+            ax_i.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
+            ax_i.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
+            ax_i.set_ylabel("Measured Value")
+            fig_i.subplots_adjust(right=0.8, bottom=0.2)
+            st.pyplot(fig_i)
+            plt.close(fig_i)
+
+            # ---------------------------------------------------------
+            # MOVING RANGE (MR) CHART PLOTTING
+            # ---------------------------------------------------------
+            st.markdown(f"### 📉 Moving Range (MR) Chart - {factor_opt} ({source_opt})")
+            fig_mr, ax_mr = plt.subplots(figsize=(12, 4.5))
+            ax_mr.set_facecolor('#f2f2f2')
+            
+            ax_mr.plot(df_imr["Coil No."], df_imr["MR"], marker='s', color='#800080', linestyle='-', linewidth=1.5, markersize=6, label="Moving Range")
+            
+            ax_mr.axhline(mean_mr, color="DeepSkyBlue", linestyle="-", linewidth=2, label=f"Mean (MR) = {mean_mr:.3f}")
+            ax_mr.axhline(ucl_mr, color="#d62728", linestyle="--", linewidth=1.5, label=f"UCL = {ucl_mr:.3f}")
+            ax_mr.axhline(0, color="#d62728", linestyle="--", linewidth=1.5, label="LCL = 0.000")
+
+            if len(df_imr) > 40:
+                ax_mr.set_xticks(ax_mr.get_xticks()[::len(df_imr)//30])
+            ax_mr.set_xticklabels(ax_mr.get_xticklabels(), rotation=45, ha='right', fontsize=8)
+
+            ax_mr.legend(bbox_to_anchor=(1.02, 1), loc="upper left", frameon=True, edgecolor="black")
+            ax_mr.grid(axis="y", color="#cccccc", linestyle="-", linewidth=1)
+            ax_mr.set_ylabel("Range |X(i) - X(i-1)|")
+            fig_mr.subplots_adjust(right=0.8, bottom=0.2)
+            st.pyplot(fig_mr)
+            plt.close(fig_mr)
+
+            # ---------------------------------------------------------
+            # COIL LEVEL DATA TABLE
+            # ---------------------------------------------------------
+            with st.expander("📋 Coil-Level Statistical Data"):
+                display_cols = ["Time", "製造批號", "Coil No.", target_col, "MR"]
+                st.dataframe(
+                    df_imr[display_cols].rename(columns={
+                        "Time": "Timestamp",
+                        "製造批號": "Batch No.",
+                        target_col: f"{factor_opt} Value"
+                    }).style.format({f"{factor_opt} Value": "{:.3f}", "MR": "{:.3f}"}, na_rep="-"),
+                    use_container_width=True,
+                    hide_index=True
                 )
