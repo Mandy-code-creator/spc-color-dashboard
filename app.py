@@ -927,7 +927,6 @@ elif app_mode == "🎛️ Control Limit Calculator":
         st.markdown("**Select Data Source:**")
         calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True)
         
-    result_placeholder = st.empty()
     st.markdown("---")
 
     factors = ["ΔL", "Δa", "Δb"]
@@ -971,7 +970,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 df_table = pd.DataFrame([
                     {"Method": "0. Spec (Sheet)", "Min": olcl_str, "Max": oucl_str, "Center": "-", "Note": "Current Target"},
                     {"Method": f"1. Standard ({res['sig']}σ)", "Min": f"{res['std_lcl']:.3f}", "Max": f"{res['std_ucl']:.3f}", "Center": f"{res['m']:.3f}", "Note": "Basic Stats"},
-                    {"Method": f"2. IQR (k={res['iqr_k']})", "Min": f"{res['iqr_lcl']:.3f}", "Max": f"{res['iqr_ucl']:.3f}", "Center": f"{res['median']:.3f}", "Note": "Filtered"}
+                    {"Method": f"2. IQR (k={res['iqr_k']})", "Min": f"{res['iqr_lcl']:.3f}", "Max": f"{res['iqr_ucl']:.3f}", "Center": f"{res['median']:.3f}", "Note": "Robust Fence"}
                 ])
                 st.dataframe(df_table, hide_index=True, use_container_width=True)
                 st.info(f"**Stats:** μ={res['m']:.3f} | σ={res['s']:.3f} | n={len(res['data'])}")
@@ -1010,10 +1009,40 @@ elif app_mode == "🎛️ Control Limit Calculator":
             st.warning(f"Not enough data for {f} (min 3 batches).")
 
     if len(calc_res) == 3:
+        # =====================================================
+        # TASK 3 SUMMARY: ΔL / Δa / Δb — BOTH CALCULATION METHODS
+        # =====================================================
+        st.markdown("### 📋 Control Limit Summary — ΔL / Δa / Δb")
+
+        summary_rows = []
+        for f in factors:
+            res = calc_res[f]
+            summary_rows.append({
+                "Factor": f,
+                "n": len(res["data"]),
+                "Method 1 Kσ": f"{res['sig']:.1f}σ",
+                "Standard LCL": round(res["std_lcl"], 3),
+                "Standard UCL": round(res["std_ucl"], 3),
+                "Method 2 IQR k": f"{res['iqr_k']:.1f}",
+                "IQR LCL": round(res["iqr_lcl"], 3),
+                "IQR UCL": round(res["iqr_ucl"], 3),
+                "Current Sheet LCL": round(res["olcl"], 3) if pd.notnull(res["olcl"]) else None,
+                "Current Sheet UCL": round(res["oucl"], 3) if pd.notnull(res["oucl"]) else None,
+            })
+
+        control_limit_summary = pd.DataFrame(summary_rows)
+        st.dataframe(control_limit_summary, hide_index=True, use_container_width=True)
+        st.caption(
+            "Method 1 = Mean ± Kσ. Method 2 = Q1 − k×IQR to Q3 + k×IQR. "
+            "The table summarizes all three color components before deriving ΔE."
+        )
+        st.markdown("---")
+
         dE_std = math.sqrt(dE_std_sq)
         dE_iqr = math.sqrt(dE_iqr_sq)
         limit_threshold = 1.0 if calc_source.upper() == "LINE" else 0.5
-        
+
+        result_placeholder = st.empty()
         with result_placeholder.container():
             st.markdown("### 🎯 Derived ΔE UCL Comparison")
             col_res1, col_res2 = st.columns(2)
