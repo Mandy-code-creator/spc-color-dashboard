@@ -926,6 +926,54 @@ elif app_mode == "🎛️ Control Limit Calculator":
     with st.expander("⚙️ Data Source Settings", expanded=True):
         st.markdown("**Select Data Source:**")
         calc_source = st.radio("Data Source", ["LINE", "LAB"], horizontal=True)
+
+    # =========================================================
+    # VIEW 3 - LOADED DATA TABLE (BATCH-LEVEL DATA USED IN CALC)
+    # =========================================================
+    st.markdown("### 📋 Loaded Data Used for Control Limit Calculation")
+
+    source_key = calc_source.lower()
+    calc_data_table = None
+    time_cols = []
+
+    for _f in ["ΔL", "Δa", "Δb"]:
+        _tmp = spc_data[_f][source_key][["製造批號", "Time", "value"]].copy()
+        _time_col = f"Time_{_f}"
+        time_cols.append(_time_col)
+        _tmp = _tmp.rename(columns={"Time": _time_col, "value": _f})
+
+        if calc_data_table is None:
+            calc_data_table = _tmp
+        else:
+            calc_data_table = calc_data_table.merge(_tmp, on="製造批號", how="outer")
+
+    if calc_data_table is not None and not calc_data_table.empty:
+        for _tc in time_cols:
+            calc_data_table[_tc] = pd.to_datetime(calc_data_table[_tc], errors="coerce")
+
+        # All three factors are calculated at batch level. Use the earliest valid
+        # timestamp only for display/sorting; the values themselves are untouched.
+        calc_data_table["Time"] = calc_data_table[time_cols].min(axis=1)
+        calc_data_table = calc_data_table.drop(columns=time_cols)
+        calc_data_table = calc_data_table[["製造批號", "Time", "ΔL", "Δa", "Δb"]]
+        calc_data_table = calc_data_table.sort_values(["Time", "製造批號"]).reset_index(drop=True)
+        calc_data_table = calc_data_table.rename(columns={"製造批號": "Batch No."})
+
+        st.caption(
+            f"Color Code: {color} | Source: {calc_source} | "
+            f"Batches shown: {len(calc_data_table)} | Data level: Batch average"
+        )
+        st.dataframe(
+            calc_data_table.style.format({"ΔL": "{:.3f}", "Δa": "{:.3f}", "Δb": "{:.3f}"}, na_rep=""),
+            hide_index=True,
+            use_container_width=True
+        )
+        st.caption(
+            "This is the batch-level dataset used by View 3 after the current Color / Year / Month filters. "
+            "Missing component values are left blank and are not included in that factor's control-limit calculation."
+        )
+    else:
+        st.warning("No loaded batch-level data available for the current filters and selected source.")
         
     st.markdown("---")
 
