@@ -1011,12 +1011,34 @@ elif app_mode == "🎛️ Control Limit Calculator":
     if len(calc_res) == 3:
         # =====================================================
         # TASK 3 SUMMARY: ΔL / Δa / Δb — BOTH CALCULATION METHODS
+        # Recommendation = conservative intersection of Method 1 and Method 2
         # =====================================================
         st.markdown("### 📋 Control Limit Summary — ΔL / Δa / Δb")
 
         summary_rows = []
+        recommendation_valid = True
+        dE_rec_sq = 0.0
+
         for f in factors:
             res = calc_res[f]
+
+            # Conservative recommendation: keep only the range supported by BOTH methods.
+            rec_lcl = max(res["std_lcl"], res["iqr_lcl"])
+            rec_ucl = min(res["std_ucl"], res["iqr_ucl"])
+            has_overlap = rec_lcl <= rec_ucl
+
+            if has_overlap:
+                res["rec_lcl"] = rec_lcl
+                res["rec_ucl"] = rec_ucl
+                res["rec_status"] = "✅ Overlap"
+                dE_rec_sq += max(abs(rec_lcl), abs(rec_ucl)) ** 2
+            else:
+                # Do not fabricate a control limit when the two statistical methods disagree.
+                res["rec_lcl"] = None
+                res["rec_ucl"] = None
+                res["rec_status"] = "⚠ No overlap"
+                recommendation_valid = False
+
             summary_rows.append({
                 "Factor": f,
                 "n": len(res["data"]),
@@ -1026,103 +1048,96 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 "Method 2 IQR k": f"{res['iqr_k']:.1f}",
                 "IQR LCL": round(res["iqr_lcl"], 3),
                 "IQR UCL": round(res["iqr_ucl"], 3),
+                "Recommended LCL": round(rec_lcl, 3) if has_overlap else None,
+                "Recommended UCL": round(rec_ucl, 3) if has_overlap else None,
                 "Current Sheet LCL": round(res["olcl"], 3) if pd.notnull(res["olcl"]) else None,
                 "Current Sheet UCL": round(res["oucl"], 3) if pd.notnull(res["oucl"]) else None,
+                "Recommendation Status": res["rec_status"],
             })
 
         control_limit_summary = pd.DataFrame(summary_rows)
         st.dataframe(control_limit_summary, hide_index=True, use_container_width=True)
         st.caption(
             "Method 1 = Mean ± Kσ. Method 2 = Q1 − k×IQR to Q3 + k×IQR. "
-            "The table summarizes all three color components before deriving ΔE."
+            "Recommended limits = intersection of Method 1 and Method 2: "
+            "LCL = max(Standard LCL, IQR LCL), UCL = min(Standard UCL, IQR UCL)."
         )
         st.markdown("---")
 
         dE_std = math.sqrt(dE_std_sq)
         dE_iqr = math.sqrt(dE_iqr_sq)
+        dE_rec = math.sqrt(dE_rec_sq) if recommendation_valid else None
         limit_threshold = 1.0 if calc_source.upper() == "LINE" else 0.5
 
-        result_placeholder = st.empty()
-        with result_placeholder.container():
-            st.markdown("### 🎯 Derived ΔE UCL Comparison")
-            col_res1, col_res2 = st.columns(2)
-            
-            with col_res1:
-                if dE_std <= limit_threshold: 
-                    st.success(f"**Method 1 (Standard)** ΔE UCL: **{dE_std:.3f}** (✅ ≤ {limit_threshold})")
-                else: 
-                    st.error(f"**Method 1 (Standard)** ΔE UCL: **{dE_std:.3f}** (⚠️ > {limit_threshold})")
-                    
-            with col_res2:
-                if dE_iqr <= limit_threshold: 
-                    st.success(f"**Method 2 (IQR)** ΔE UCL: **{dE_iqr:.3f}** (✅ ≤ {limit_threshold})")
-                else: 
-                    st.error(f"**Method 2 (IQR)** ΔE UCL: **{dE_iqr:.3f}** (⚠️ > {limit_threshold})")
+        st.markdown("### 🎯 Derived ΔE UCL Comparison")
+        col_res1, col_res2, col_res3 = st.columns(3)
 
-            st.markdown("---")
-            st.markdown("### 💡 AI Tolerance Recommendation")
-            
-            s_L = calc_res["ΔL"]['s']
-            s_a = calc_res["Δa"]['s']
-            s_b = calc_res["Δb"]['s']
-            var_sum = s_L**2 + s_a**2 + s_b**2
-            
-            if var_sum > 0:
-                visual_cap = 0.600 if calc_source.upper() == "LINE" else 0.350
-                proc_L = 3 * s_L
-                proc_a = 3 * s_a
-                proc_b = 3 * s_b
-                proc_dE = math.sqrt(proc_L**2 + proc_a**2 + proc_b**2)
-                
-                col_rl, col_ra, col_rb = st.columns(3)
-                
-                if proc_dE <= limit_threshold:
-                    st.success(f"🌟 **Process Capable!** Your natural 3σ variation yields ΔE = **{proc_dE:.3f}** (≤ {limit_threshold}). The system mathematically expands your limits to give production the maximum safe tolerance.")
-                    
-                    M = limit_threshold / math.sqrt(var_sum)
-                    math_L, math_a, math_b = M * s_L, M * s_a, M * s_b
-                    
-                    def get_optimal(math_val, cap_val):
-                        return min(math_val, cap_val), math_val > cap_val
-                    
-                    rec_L, cap_L = get_optimal(math_L, visual_cap)
-                    rec_a, cap_a = get_optimal(math_a, visual_cap)
-                    rec_b, cap_b = get_optimal(math_b, visual_cap)
-                    
-                    def render_card(col, label, val, is_capped, orig_val):
-                        if is_capped:
-                            col.info(f"**{label} Max Limit:**\n### ± {val:.3f}\n*(Capped from {orig_val:.3f} to protect vision)*")
-                        else:
-                            col.success(f"**{label} Max Limit:**\n### ± {val:.3f}\n*(Safe & Optimal)*")
-
-                    render_card(col_rl, "ΔL", rec_L, cap_L, math_L)
-                    render_card(col_ra, "Δa", rec_a, cap_a, math_a)
-                    render_card(col_rb, "Δb", rec_b, cap_b, math_b)
-                    
-                else:
-                    st.warning(f"⚠️ **Strict Spec Unrealistic!** Your process natural 3σ yields ΔE = **{proc_dE:.3f}** (> {limit_threshold}). Forcing strict specs will cause false alarms. Below are the **Practical Limits** adapting to your actual machine capability:")
-                    
-                    def get_practical(proc_val, cap_val):
-                        return min(proc_val, cap_val), proc_val > cap_val
-                    
-                    rec_L, cap_L = get_practical(proc_L, visual_cap)
-                    rec_a, cap_a = get_practical(proc_a, visual_cap)
-                    rec_b, cap_b = get_practical(proc_b, visual_cap)
-                    
-                    def render_practical_card(col, label, val, is_capped, orig_val):
-                        if is_capped:
-                            col.error(f"**{label} Practical Limit:**\n### ± {val:.3f}\n*(Hard capped from 3σ={orig_val:.3f} to prevent hue shift)*")
-                        else:
-                            col.warning(f"**{label} Practical Limit:**\n### ± {val:.3f}\n*(Based on actual 3σ)*")
-
-                    render_practical_card(col_rl, "ΔL", rec_L, cap_L, proc_L)
-                    render_practical_card(col_ra, "Δa", rec_a, cap_a, proc_a)
-                    render_practical_card(col_rb, "Δb", rec_b, cap_b, proc_b)
-                    
-                    prac_dE = math.sqrt(rec_L**2 + rec_a**2 + rec_b**2)
-                    st.caption(f"🎯 *Note: By applying these practical limits, your expected ΔE UCL will be ~**{prac_dE:.3f}**. To bring this down to {limit_threshold}, you must fundamentally reduce machine fluctuation.*")
+        with col_res1:
+            if dE_std <= limit_threshold:
+                st.success(f"**Method 1 (Standard)** ΔE UCL: **{dE_std:.3f}** (✅ ≤ {limit_threshold})")
             else:
-                st.warning("Data variance is zero. Cannot generate recommendations.")
+                st.error(f"**Method 1 (Standard)** ΔE UCL: **{dE_std:.3f}** (⚠️ > {limit_threshold})")
+
+        with col_res2:
+            if dE_iqr <= limit_threshold:
+                st.success(f"**Method 2 (IQR)** ΔE UCL: **{dE_iqr:.3f}** (✅ ≤ {limit_threshold})")
+            else:
+                st.error(f"**Method 2 (IQR)** ΔE UCL: **{dE_iqr:.3f}** (⚠️ > {limit_threshold})")
+
+        with col_res3:
+            if dE_rec is None:
+                st.warning("**Recommended** ΔE UCL: **N/A**\n\n⚠ One or more factors have no overlap")
+            elif dE_rec <= limit_threshold:
+                st.success(f"**Recommended** ΔE UCL: **{dE_rec:.3f}** (✅ ≤ {limit_threshold})")
+            else:
+                st.error(f"**Recommended** ΔE UCL: **{dE_rec:.3f}** (⚠️ > {limit_threshold})")
+
+        st.markdown("---")
+        st.markdown("### 💡 AI Control Limit Recommendation")
+        st.info(
+            "Recommendation is based directly on the overlap of **Method 1 (Standard)** and "
+            "**Method 2 (IQR)**. The system does **not** expand ΔL / Δa / Δb limits to consume the available ΔE tolerance."
+        )
+
+        col_rl, col_ra, col_rb = st.columns(3)
+        rec_cols = {"ΔL": col_rl, "Δa": col_ra, "Δb": col_rb}
+
+        for f in factors:
+            res = calc_res[f]
+            col = rec_cols[f]
+
+            if res["rec_lcl"] is not None and res["rec_ucl"] is not None:
+                rec_center = (res["rec_lcl"] + res["rec_ucl"]) / 2
+                rec_width = res["rec_ucl"] - res["rec_lcl"]
+                col.success(
+                    f"**{f} Recommended Control Limit**\n\n"
+                    f"### {res['rec_lcl']:.3f} ~ {res['rec_ucl']:.3f}\n\n"
+                    f"Center: **{rec_center:.3f}**  |  Width: **{rec_width:.3f}**"
+                )
+            else:
+                col.warning(
+                    f"**{f} Recommended Control Limit**\n\n"
+                    "### Manual Review Required\n\n"
+                    "Standard and IQR ranges do not overlap."
+                )
+
+        if recommendation_valid:
+            if dE_rec <= limit_threshold:
+                st.success(
+                    f"✅ **Recommendation validated:** Using the recommended ΔL / Δa / Δb boundaries, "
+                    f"the derived worst-case ΔE UCL is **{dE_rec:.3f}**, within the {calc_source} threshold **≤ {limit_threshold}**."
+                )
+            else:
+                st.warning(
+                    f"⚠️ **Recommendation requires further tightening:** The overlap-based limits yield "
+                    f"a derived worst-case ΔE UCL of **{dE_rec:.3f}**, above the {calc_source} threshold **{limit_threshold}**. "
+                    "The system will not widen the component limits; review process variation or tighten the limits manually."
+                )
+        else:
+            st.warning(
+                "⚠️ A final three-factor recommendation cannot be issued because at least one factor has no common range "
+                "between Standard and IQR. Review that factor before setting a new control limit."
+            )
 
     st.markdown("---")
     st.subheader("🧮 Manual ΔE Calculator")
