@@ -1091,6 +1091,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 "Factor": f,
                 "n": len(res["data"]),
                 "Mean": round(res["m"], 3),
+                "標準差 (σ)": round(res["s"], 3),
                 "Method 1 Kσ": f"{res['sig']:.1f}σ",
                 "Standard LCL": round(res["std_lcl"], 3),
                 "Standard UCL": round(res["std_ucl"], 3),
@@ -1161,7 +1162,7 @@ elif app_mode == "🎛️ Control Limit Calculator":
                 col.success(
                     f"**{f} Recommended Control Limit**\n\n"
                     f"### {res['rec_lcl']:.3f} ~ {res['rec_ucl']:.3f}\n\n"
-                    f"Mean: **{res['m']:.3f}**  |  Center: **{rec_center:.3f}**  |  Width: **{rec_width:.3f}**"
+                    f"Mean: **{res['m']:.3f}**  |  σ: **{res['s']:.3f}**  |  Center: **{rec_center:.3f}**  |  Width: **{rec_width:.3f}**"
                 )
             else:
                 col.warning(
