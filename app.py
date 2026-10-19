@@ -1853,7 +1853,8 @@ elif app_mode == "🎯 KPI Achievement Report":
     )
 
     st.info(
-        "**KPI logic:** A Phase II batch is counted as OOC only once even if multiple factors "
+        "**KPI logic:** The **Control Start Batch itself is excluded**; KPI evaluation starts from the **next batch onward**. "
+        "A post-control batch is counted as OOC only once even if multiple factors "
         "(ΔL / Δa / Δb) exceed the configured control limits. **Value = LCL or Value = UCL is still IN CONTROL**; "
         "KPI OOC is counted only when **Value < LCL** or **Value > UCL**. The existing 3-Sigma monitoring "
         "in the original tasks is kept unchanged and is not added to this KPI unless the configured control limit is also exceeded. "
@@ -1921,7 +1922,17 @@ elif app_mode == "🎯 KPI Achievement Report":
         if cb is None or cb_code is None or c_time is None:
             continue
 
-        df_p2 = df_c[df_c["Time"] >= c_time].copy()
+        # KPI evaluation starts STRICTLY AFTER the Control Start Batch.
+        # The control batch itself is only the boundary / activation point and
+        # must NOT be included in OOC Rate, denominator, or Cpk calculations.
+        batch_order_c = df_c.sort_values("Time")["製造批號"].drop_duplicates().tolist()
+        try:
+            control_idx = batch_order_c.index(cb_code)
+            post_control_batches = batch_order_c[control_idx + 1:]
+        except ValueError:
+            post_control_batches = []
+
+        df_p2 = df_c[df_c["製造批號"].isin(post_control_batches)].copy()
         if df_p2.empty:
             continue
 
@@ -2057,7 +2068,7 @@ elif app_mode == "🎯 KPI Achievement Report":
             "Color Code": c,
             "Control Batch #": cb,
             "Control Start Batch": cb_code,
-            "Phase II Raw Batches": phase2_batches_raw,
+            "Post-Control Raw Batches": phase2_batches_raw,
             "SPC Valid Batches": n_valid,
             "OOC Batches": n_ooc,
             "OOC Rate (%)": round(ooc_rate, 2) if pd.notna(ooc_rate) else np.nan,
@@ -2162,7 +2173,7 @@ elif app_mode == "🎯 KPI Achievement Report":
 
         d = detail_store[selected_kpi_color]
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Phase II Valid Batches", len(d["valid_batches"]))
+        c1.metric("Post-Control Valid Batches", len(d["valid_batches"]))
         c2.metric(
             "OOC Rate",
             f"{d['ooc_rate']:.2f}%" if pd.notna(d["ooc_rate"]) else "N/A",
@@ -2224,11 +2235,11 @@ elif app_mode == "🎯 KPI Achievement Report":
                 hide_index=True,
             )
             st.warning(
-                "Only batches listed above are counted in the KPI OOC numerator. "
+                "Only post-control batches listed above are counted in the KPI OOC numerator. "
                 "If this table is empty, OOC Batches = 0."
             )
         else:
-            st.success("✅ No Phase II batch is strictly outside the configured LCL/UCL for this source.")
+            st.success("✅ No post-control batch is strictly outside the configured LCL/UCL for this source.")
 
         st.caption(
             "**Interpretation:** OOC Rate answers how often Phase II SPC violations occurred. "
