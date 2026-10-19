@@ -2005,6 +2005,144 @@ elif app_mode == "🎯 KPI Achievement Report":
             key="download_kpi_report_csv"
         )
 
+        # ---------------------------------------------------------
+        # SHORT WORD REPORT FOR MANAGEMENT
+        # Only added to this KPI task; existing tasks/charts unchanged.
+        # ---------------------------------------------------------
+        def build_ooc_kpi_word_report(summary_df, source_name, target_pct,
+                                      controlled_count, achieved_count,
+                                      action_count, incomplete_count):
+            doc = docx.Document()
+
+            # Compact page layout
+            section = doc.sections[0]
+            section.top_margin = Inches(0.55)
+            section.bottom_margin = Inches(0.55)
+            section.left_margin = Inches(0.55)
+            section.right_margin = Inches(0.55)
+
+            # Font setup for Traditional Chinese / English
+            styles = doc.styles
+            styles["Normal"].font.name = "Microsoft JhengHei"
+            styles["Normal"].font.size = docx.shared.Pt(10)
+            for style_name in ["Title", "Heading 1", "Heading 2"]:
+                if style_name in styles:
+                    styles[style_name].font.name = "Microsoft JhengHei"
+
+            title = doc.add_heading("SPC 管制成效 KPI 摘要報告", level=0)
+            title.alignment = 1
+
+            p = doc.add_paragraph()
+            p.add_run("資料來源：").bold = True
+            p.add_run(str(source_name))
+            p.add_run("    報告日期：").bold = True
+            p.add_run(datetime.now().strftime("%Y-%m-%d"))
+
+            # 1. Objective / rule
+            doc.add_heading("一、評估目標", level=1)
+            p = doc.add_paragraph()
+            p.add_run(f"管理目標：管制後 OOC Rate ≤ {target_pct:.1f}% 。").bold = True
+            doc.add_paragraph(
+                "Control Start Batch 僅作為管制起始點，不納入 KPI 計算；"
+                "僅計算其後批次。數值等於 LCL 或 UCL 視為管制內，"
+                "僅當數值 < LCL 或 > UCL 時判定為 OOC。"
+            )
+
+            # 2. Overall summary
+            doc.add_heading("二、整體結果", level=1)
+            summary_table = doc.add_table(rows=2, cols=4)
+            summary_table.style = "Table Grid"
+            headers = ["已管制色號", f"OOC ≤ {target_pct:.1f}%", "需改善", "資料/界限不完整"]
+            values = [str(controlled_count), str(achieved_count), str(action_count), str(incomplete_count)]
+            for j, h in enumerate(headers):
+                summary_table.rows[0].cells[j].text = h
+                summary_table.rows[1].cells[j].text = values[j]
+
+            # 3. Color summary table
+            doc.add_heading("三、色號 KPI 結果", level=1)
+            word_cols = [
+                "Color Code", "Control Start Batch", "SPC Valid Batches",
+                "OOC Batches", "OOC Rate (%)", "OOC KPI"
+            ]
+            word_df = summary_df[word_cols].copy()
+            word_df = word_df.sort_values(
+                by=["OOC Rate (%)", "Color Code"],
+                ascending=[False, True],
+                na_position="last"
+            )
+
+            table = doc.add_table(rows=1, cols=len(word_cols))
+            table.style = "Table Grid"
+            zh_headers = ["色號", "管制起始批號", "有效批數", "OOC批數", "OOC率(%)", "判定"]
+            for j, h in enumerate(zh_headers):
+                table.rows[0].cells[j].text = h
+
+            for _, rr in word_df.iterrows():
+                cells = table.add_row().cells
+                cells[0].text = str(rr["Color Code"])
+                cells[1].text = str(rr["Control Start Batch"])
+                cells[2].text = str(int(rr["SPC Valid Batches"]))
+                cells[3].text = str(int(rr["OOC Batches"]))
+                cells[4].text = "-" if pd.isna(rr["OOC Rate (%)"]) else f"{float(rr['OOC Rate (%)']):.2f}"
+                status = str(rr["OOC KPI"])
+                if "Achieved" in status and "Not" not in status:
+                    cells[5].text = "達成"
+                elif "Not Achieved" in status:
+                    cells[5].text = "未達成"
+                elif "CL Missing" in status:
+                    cells[5].text = "界限缺失"
+                else:
+                    cells[5].text = "資料不足"
+
+            # 4. Short management conclusion
+            doc.add_heading("四、結論", level=1)
+            if action_count == 0 and incomplete_count == 0:
+                conclusion = (
+                    f"本次共評估 {controlled_count} 個已管制色號，全部符合 "
+                    f"OOC Rate ≤ {target_pct:.1f}% 之管理目標，整體管制成效符合預期。"
+                )
+            else:
+                parts = [
+                    f"本次共評估 {controlled_count} 個已管制色號，"
+                    f"其中 {achieved_count} 個達成 OOC Rate ≤ {target_pct:.1f}% 目標。"
+                ]
+                if action_count > 0:
+                    not_ok = word_df[word_df["OOC KPI"] == "❌ Not Achieved"]
+                    action_text = ", ".join(
+                        f"{r['Color Code']} ({float(r['OOC Rate (%)']):.2f}%)"
+                        for _, r in not_ok.iterrows() if pd.notna(r["OOC Rate (%)"])
+                    )
+                    if action_text:
+                        parts.append(f"未達目標色號：{action_text}，建議列為後續優先追蹤對象。")
+                if incomplete_count > 0:
+                    parts.append(f"另有 {incomplete_count} 個色號因資料或管制界限不完整，暫無法完成 KPI 判定。")
+                conclusion = "".join(parts)
+
+            doc.add_paragraph(conclusion)
+
+            buf = io.BytesIO()
+            doc.save(buf)
+            buf.seek(0)
+            return buf
+
+        word_report_buf = build_ooc_kpi_word_report(
+            display_report_df,
+            report_source,
+            ooc_target,
+            n_controlled,
+            n_ooc_ok,
+            n_action,
+            n_incomplete
+        )
+
+        st.download_button(
+            "📄 Download Short Word Report for Management",
+            data=word_report_buf,
+            file_name=f"SPC_OOC_KPI_Management_Report_{report_source}_{datetime.now().strftime('%Y%m%d')}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="download_kpi_management_word"
+        )
+
         st.markdown("---")
         st.markdown("### 🔎 Color Detail")
         selected_kpi_color = st.selectbox(
