@@ -1792,8 +1792,10 @@ elif app_mode == "🎯 KPI Achievement Report":
 
     st.info(
         "**KPI logic:** A Phase II batch is counted as OOC only once even if multiple factors "
-        "(ΔL / Δa / Δb) violate SPC rules. For Cpk, the color-level KPI uses the **minimum Cpk** "
-        "among ΔL, Δa and Δb (worst-case factor)."
+        "(ΔL / Δa / Δb) exceed the configured control limits. **Value = LCL or Value = UCL is still IN CONTROL**; "
+        "KPI OOC is counted only when **Value < LCL** or **Value > UCL**. The existing 3-Sigma monitoring "
+        "in the original tasks is kept unchanged and is not added to this KPI unless the configured control limit is also exceeded. "
+        "For Cpk, the color-level KPI uses the **minimum Cpk** among ΔL, Δa and Δb (worst-case factor)."
     )
 
     col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
@@ -1897,8 +1899,20 @@ elif app_mode == "🎯 KPI Achievement Report":
             else:
                 fdf = fdf.iloc[0:0].copy()
 
-            if not fdf.empty:
-                ooc_f = detect_out_of_control(fdf, lcl, ucl)
+            if not fdf.empty and lcl is not None and ucl is not None:
+                # KPI boundary rule:
+                # value == LCL or value == UCL is still IN CONTROL.
+                # Count OOC only when the value is strictly outside the configured
+                # control limits. np.isclose prevents floating-point artifacts such
+                # as 0.20000000000000004 from being treated as a limit violation.
+                vals = pd.to_numeric(fdf["value"], errors="coerce")
+                at_lcl = np.isclose(vals, float(lcl), rtol=1e-10, atol=1e-12, equal_nan=False)
+                at_ucl = np.isclose(vals, float(ucl), rtol=1e-10, atol=1e-12, equal_nan=False)
+                below_lcl = (vals < float(lcl)) & (~at_lcl)
+                above_ucl = (vals > float(ucl)) & (~at_ucl)
+                ooc_mask_kpi = below_lcl | above_ucl
+
+                ooc_f = fdf[ooc_mask_kpi].copy()
                 factor_ooc_counts[f] = ooc_f["製造批號"].nunique()
                 unique_ooc_batches.update(ooc_f["製造批號"].astype(str).tolist())
             else:
