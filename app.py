@@ -118,70 +118,6 @@ def safe_get_limit(c_code, src, fac):
     except:
         return None, None
 
-def safe_get_spec(c_code, src, fac):
-    """
-    Read TRUE specification limits (LSL/USL) from limit_df.
-
-    Expected examples in the Google Sheet:
-      LINE ΔL LSL, LINE ΔL USL
-      LINE Δa LSL, LINE Δa USL
-      LINE Δb LSL, LINE Δb USL
-      LAB  ΔL LSL, LAB  ΔL USL, ...
-
-    IMPORTANT: This function intentionally does NOT use LCL/UCL because
-    control limits are not specification limits and should not be used for Cpk.
-    """
-    try:
-        if "Color_code" not in limit_df.columns:
-            return None, None
-
-        c_search = str(c_code).strip().upper()
-        mask = limit_df["Color_code"].astype(str).str.strip().str.upper() == c_search
-        row = limit_df[mask]
-        if row.empty:
-            return None, None
-
-        src_up = str(src).strip().upper()
-        fac1 = str(fac).strip().upper()
-        fac2 = fac1.replace("Δ", "DELTA ")
-
-        lsl, usl = None, None
-        for col in row.columns:
-            cup = str(col).strip().upper()
-            factor_match = (fac1 in cup) or (fac2 in cup)
-            source_match = src_up in cup
-            if source_match and factor_match:
-                val = row[col].iloc[0]
-                try:
-                    num = float(val)
-                    if pd.isna(num):
-                        continue
-                    if "LSL" in cup:
-                        lsl = num
-                    if "USL" in cup:
-                        usl = num
-                except:
-                    pass
-
-        return lsl, usl
-    except:
-        return None, None
-
-def calculate_cpk(values, lsl, usl):
-    """Two-sided Cpk using sample standard deviation (ddof=1)."""
-    if lsl is None or usl is None or lsl >= usl:
-        return None
-    s = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
-    if len(s) < 3:
-        return None
-    mean = s.mean()
-    std = s.std(ddof=1)
-    if pd.isna(std) or std <= 0:
-        return None
-    cpu = (usl - mean) / (3 * std)
-    cpl = (mean - lsl) / (3 * std)
-    return min(cpu, cpl)
-
 def get_kpi_control_limit_exact(c_code, src, fac):
     """
     KPI-report-only control-limit resolver.
@@ -1844,24 +1780,24 @@ elif app_mode == "📈 I-MR Chart (Coil-Level)":
 
 # =========================================================
 # NEW VIEW: KPI ACHIEVEMENT REPORT – CONTROLLED COLORS
+# OOC KPI ONLY (NO Cpk – no true LSL/USL specification limits available)
 # =========================================================
 elif app_mode == "🎯 KPI Achievement Report":
-    st.title("🎯 SPC KPI Achievement Report – Controlled Colors")
+    st.title("🎯 SPC OOC KPI Report – Controlled Colors")
     st.markdown(
-        "Evaluate controlled colors using two parallel KPI: "
-        "**(1) Phase II OOC Rate ≤ target** and **(2) Minimum Cpk ≥ target**."
+        "Evaluate controlled colors using the management target: "
+        "**Post-control OOC Rate ≤ target**."
     )
 
     st.info(
-        "**KPI logic:** The **Control Start Batch itself is excluded**; KPI evaluation starts from the **next batch onward**. "
-        "A post-control batch is counted as OOC only once even if multiple factors "
-        "(ΔL / Δa / Δb) exceed the configured control limits. **Value = LCL or Value = UCL is still IN CONTROL**; "
-        "KPI OOC is counted only when **Value < LCL** or **Value > UCL**. The existing 3-Sigma monitoring "
-        "in the original tasks is kept unchanged and is not added to this KPI unless the configured control limit is also exceeded. "
-        "For Cpk, the color-level KPI uses the **minimum Cpk** among ΔL, Δa and Δb (worst-case factor)."
+        "**KPI logic:** The **Control Start Batch itself is excluded**; KPI evaluation starts from the "
+        "**next batch onward**. A post-control batch is counted as OOC only once even if multiple factors "
+        "(ΔL / Δa / Δb) exceed the configured control limits. **Value = LCL or Value = UCL remains IN CONTROL**; "
+        "OOC is counted only when **Value < LCL** or **Value > UCL**. The original tasks and their 3-Sigma logic "
+        "remain unchanged. This KPI report uses only configured LCL/UCL breaches."
     )
 
-    col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
+    col_cfg1, col_cfg2 = st.columns(2)
     with col_cfg1:
         report_source = st.radio(
             "Data Source",
@@ -1879,31 +1815,9 @@ elif app_mode == "🎯 KPI Achievement Report":
             step=0.5,
             key="kpi_ooc_target"
         )
-    with col_cfg3:
-        cpk_target = st.number_input(
-            "Cpk Target",
-            min_value=0.0,
-            value=1.33,
-            step=0.01,
-            key="kpi_cpk_target"
-        )
 
     source_key = report_source.lower()
     factors = ["ΔL", "Δa", "Δb"]
-
-    # Detect whether TRUE specification columns exist in the Google Sheet.
-    # We intentionally do not treat LCL/UCL as specification limits.
-    spec_like_cols = [
-        c for c in limit_df.columns
-        if ("LSL" in str(c).upper() or "USL" in str(c).upper())
-    ]
-    if not spec_like_cols:
-        st.warning(
-            "⚠️ **Cpk cannot be certified yet:** no true LSL/USL specification columns were found "
-            "in the Limit Google Sheet. Add columns such as `LINE ΔL LSL`, `LINE ΔL USL`, "
-            "`LINE Δa LSL`, `LINE Δa USL`, `LINE Δb LSL`, `LINE Δb USL`. "
-            "The report will still calculate OOC Rate; Cpk will show N/A until specifications are provided."
-        )
 
     report_rows = []
     detail_store = {}
@@ -1922,9 +1836,8 @@ elif app_mode == "🎯 KPI Achievement Report":
         if cb is None or cb_code is None or c_time is None:
             continue
 
-        # KPI evaluation starts STRICTLY AFTER the Control Start Batch.
-        # The control batch itself is only the boundary / activation point and
-        # must NOT be included in OOC Rate, denominator, or Cpk calculations.
+        # IMPORTANT: the control start batch is only the boundary.
+        # KPI counting starts from the NEXT batch.
         batch_order_c = df_c.sort_values("Time")["製造批號"].drop_duplicates().tolist()
         try:
             control_idx = batch_order_c.index(cb_code)
@@ -1938,7 +1851,8 @@ elif app_mode == "🎯 KPI Achievement Report":
 
         spc_p2 = calculate_batch_averages(df_p2)
 
-        # Use only batches that have valid Phase II values for all 3 factors.
+        # Use only batches with valid values for all 3 color factors so the
+        # denominator is consistent across ΔL / Δa / Δb.
         factor_batch_sets = []
         factor_frames = {}
         for f in factors:
@@ -1946,17 +1860,10 @@ elif app_mode == "🎯 KPI Achievement Report":
             factor_frames[f] = fdf
             factor_batch_sets.append(set(fdf["製造批號"].tolist()))
 
-        if factor_batch_sets:
-            valid_batches = set.intersection(*factor_batch_sets) if all(factor_batch_sets) else set()
-        else:
-            valid_batches = set()
-
+        valid_batches = set.intersection(*factor_batch_sets) if factor_batch_sets and all(factor_batch_sets) else set()
         n_valid = len(valid_batches)
-        phase2_batches_raw = df_p2["製造批號"].nunique()
+        post_control_raw_batches = df_p2["製造批號"].nunique()
 
-        # -------------------------------------------------------------
-        # KPI 1 – OOC Rate (unique batch level)
-        # -------------------------------------------------------------
         unique_ooc_batches = set()
         cl_complete = True
         factor_ooc_counts = {}
@@ -1971,6 +1878,7 @@ elif app_mode == "🎯 KPI Achievement Report":
                 "LCL": lcl,
                 "UCL": ucl,
             }
+
             if lcl is None or ucl is None:
                 cl_complete = False
 
@@ -1981,15 +1889,10 @@ elif app_mode == "🎯 KPI Achievement Report":
                 fdf = fdf.iloc[0:0].copy()
 
             if not fdf.empty and lcl is not None and ucl is not None:
-                # KPI boundary rule:
-                # value == LCL or value == UCL is still IN CONTROL.
-                # Count OOC only when the value is strictly outside the configured
-                # control limits. np.isclose prevents floating-point artifacts such
-                # as 0.20000000000000004 from being treated as a limit violation.
                 vals = pd.to_numeric(fdf["value"], errors="coerce")
 
-                # Equal to LCL/UCL remains IN CONTROL. The tiny tolerance only
-                # removes floating-point noise and does not widen the limits.
+                # Boundary rule: equal to LCL/UCL is IN CONTROL.
+                # Tiny tolerance only avoids floating-point artifacts.
                 tol = 1e-9
                 below_lcl = vals < (float(lcl) - tol)
                 above_ucl = vals > (float(ucl) + tol)
@@ -1999,21 +1902,20 @@ elif app_mode == "🎯 KPI Achievement Report":
                 factor_ooc_counts[f] = ooc_f["製造批號"].nunique()
                 unique_ooc_batches.update(ooc_f["製造批號"].astype(str).tolist())
 
-                if not ooc_f.empty:
-                    for _, rr in ooc_f.iterrows():
-                        vv = float(rr["value"])
-                        side = "Below LCL" if vv < (float(lcl) - tol) else "Above UCL"
-                        distance = (float(lcl) - vv) if side == "Below LCL" else (vv - float(ucl))
-                        ooc_trigger_rows.append({
-                            "Factor": f,
-                            "Batch No.": str(rr["製造批號"]),
-                            "Time": rr.get("Time", pd.NaT),
-                            "Batch Average": vv,
-                            "LCL": float(lcl),
-                            "UCL": float(ucl),
-                            "Trigger": side,
-                            "Outside by": distance,
-                        })
+                for _, rr in ooc_f.iterrows():
+                    vv = float(rr["value"])
+                    side = "Below LCL" if vv < (float(lcl) - tol) else "Above UCL"
+                    distance = (float(lcl) - vv) if side == "Below LCL" else (vv - float(ucl))
+                    ooc_trigger_rows.append({
+                        "Factor": f,
+                        "Batch No.": str(rr["製造批號"]),
+                        "Time": rr.get("Time", pd.NaT),
+                        "Batch Average": vv,
+                        "LCL": float(lcl),
+                        "UCL": float(ucl),
+                        "Trigger": side,
+                        "Outside by": distance,
+                    })
             else:
                 factor_ooc_counts[f] = 0
 
@@ -2029,140 +1931,80 @@ elif app_mode == "🎯 KPI Achievement Report":
         else:
             ooc_status = "❌ Not Achieved"
 
-        # -------------------------------------------------------------
-        # KPI 2 – Cpk (TRUE LSL/USL only)
-        # -------------------------------------------------------------
-        cpk_by_factor = {}
-        spec_by_factor = {}
-        for f in factors:
-            lsl, usl = safe_get_spec(c, report_source, f)
-            spec_by_factor[f] = (lsl, usl)
-
-            fdf = factor_frames[f]
-            if valid_batches:
-                fdf = fdf[fdf["製造批號"].isin(valid_batches)]
-            else:
-                fdf = fdf.iloc[0:0]
-
-            cpk_by_factor[f] = calculate_cpk(fdf["value"], lsl, usl)
-
-        available_cpks = {f: v for f, v in cpk_by_factor.items() if v is not None and pd.notna(v)}
-        if len(available_cpks) == len(factors):
-            worst_factor = min(available_cpks, key=available_cpks.get)
-            min_cpk = available_cpks[worst_factor]
-            cpk_status = "✅ Achieved" if min_cpk >= cpk_target else "❌ Not Achieved"
-        else:
-            worst_factor = "-"
-            min_cpk = np.nan
-            cpk_status = "⚪ Spec Missing"
-
-        both_achieved = (ooc_status == "✅ Achieved" and cpk_status == "✅ Achieved")
-        if both_achieved:
-            overall_status = "✅ BOTH KPI ACHIEVED"
-        elif ooc_status.startswith("⚪") or cpk_status.startswith("⚪"):
-            overall_status = "⚪ INCOMPLETE"
-        else:
-            overall_status = "❌ ACTION REQUIRED"
-
         report_rows.append({
             "Color Code": c,
             "Control Batch #": cb,
             "Control Start Batch": cb_code,
-            "Post-Control Raw Batches": phase2_batches_raw,
+            "Post-Control Raw Batches": post_control_raw_batches,
             "SPC Valid Batches": n_valid,
             "OOC Batches": n_ooc,
             "OOC Rate (%)": round(ooc_rate, 2) if pd.notna(ooc_rate) else np.nan,
             "OOC KPI": ooc_status,
-            "ΔL Cpk": round(cpk_by_factor["ΔL"], 3) if cpk_by_factor["ΔL"] is not None else np.nan,
-            "Δa Cpk": round(cpk_by_factor["Δa"], 3) if cpk_by_factor["Δa"] is not None else np.nan,
-            "Δb Cpk": round(cpk_by_factor["Δb"], 3) if cpk_by_factor["Δb"] is not None else np.nan,
-            "Min Cpk": round(min_cpk, 3) if pd.notna(min_cpk) else np.nan,
-            "Worst Cpk Factor": worst_factor,
-            "Cpk KPI": cpk_status,
-            "Overall Status": overall_status
         })
 
         detail_store[c] = {
             "control_batch": cb,
             "control_batch_code": cb_code,
             "control_time": c_time,
-            "raw_phase2_batches": phase2_batches_raw,
+            "raw_post_control_batches": post_control_raw_batches,
             "valid_batches": valid_batches,
             "ooc_batches": unique_ooc_batches,
             "ooc_rate": ooc_rate,
             "ooc_status": ooc_status,
-            "cpk_by_factor": cpk_by_factor,
-            "spec_by_factor": spec_by_factor,
-            "cpk_status": cpk_status,
-            "min_cpk": min_cpk,
-            "worst_factor": worst_factor,
-            "overall_status": overall_status,
             "factor_ooc_counts": factor_ooc_counts,
             "ooc_trigger_rows": ooc_trigger_rows,
-            "control_limit_columns": control_limit_columns
+            "control_limit_columns": control_limit_columns,
         }
 
     report_df = pd.DataFrame(report_rows)
 
     if report_df.empty:
-        st.warning("No controlled colors with Phase II data were found.")
+        st.warning("No controlled colors with post-control data were found.")
     else:
-        # -------------------------------------------------------------
-        # Executive KPI cards
-        # -------------------------------------------------------------
         n_controlled = len(report_df)
         n_ooc_ok = int((report_df["OOC KPI"] == "✅ Achieved").sum())
-        n_cpk_ok = int((report_df["Cpk KPI"] == "✅ Achieved").sum())
-        n_both = int((report_df["Overall Status"] == "✅ BOTH KPI ACHIEVED").sum())
+        n_action = int((report_df["OOC KPI"] == "❌ Not Achieved").sum())
+        n_incomplete = n_controlled - n_ooc_ok - n_action
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Controlled Colors", n_controlled)
         m2.metric(f"OOC ≤ {ooc_target:.1f}%", f"{n_ooc_ok}/{n_controlled}")
-        m3.metric(f"Cpk ≥ {cpk_target:.2f}", f"{n_cpk_ok}/{n_controlled}")
-        m4.metric("Both KPI Achieved", f"{n_both}/{n_controlled}")
+        m3.metric("Action Required", n_action)
+        m4.metric("Incomplete / Missing CL", n_incomplete)
 
         st.markdown("---")
-        st.markdown("### 📋 Controlled Color KPI Summary")
+        st.markdown("### 📋 Controlled Color OOC KPI Summary")
 
         def _kpi_row_style(row):
-            if row.get("Overall Status") == "✅ BOTH KPI ACHIEVED":
+            if row.get("OOC KPI") == "✅ Achieved":
                 return ["background-color: #e8f5e9"] * len(row)
-            if row.get("Overall Status") == "❌ ACTION REQUIRED":
+            if row.get("OOC KPI") == "❌ Not Achieved":
                 return ["background-color: #ffebee"] * len(row)
             return ["background-color: #fff8e1"] * len(row)
 
         display_report_df = report_df.sort_values(
-            by=["Overall Status", "OOC Rate (%)", "Min Cpk"],
-            ascending=[True, False, True],
+            by=["OOC Rate (%)", "Color Code"],
+            ascending=[False, True],
             na_position="last"
         ).reset_index(drop=True)
 
         st.dataframe(
             display_report_df.style
                 .apply(_kpi_row_style, axis=1)
-                .format({
-                    "OOC Rate (%)": "{:.2f}",
-                    "ΔL Cpk": "{:.3f}",
-                    "Δa Cpk": "{:.3f}",
-                    "Δb Cpk": "{:.3f}",
-                    "Min Cpk": "{:.3f}"
-                }, na_rep="-"),
+                .format({"OOC Rate (%)": "{:.2f}"}, na_rep="-"),
             use_container_width=True,
             hide_index=True
         )
 
         csv_buf = display_report_df.to_csv(index=False).encode("utf-8-sig")
         st.download_button(
-            "📥 Download KPI Summary CSV",
+            "📥 Download OOC KPI Summary CSV",
             data=csv_buf,
-            file_name=f"SPC_KPI_Achievement_{report_source}_{datetime.now().strftime('%Y%m%d')}.csv",
+            file_name=f"SPC_OOC_KPI_{report_source}_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv",
             key="download_kpi_report_csv"
         )
 
-        # -------------------------------------------------------------
-        # Selected color drill-down
-        # -------------------------------------------------------------
         st.markdown("---")
         st.markdown("### 🔎 Color Detail")
         selected_kpi_color = st.selectbox(
@@ -2173,39 +2015,27 @@ elif app_mode == "🎯 KPI Achievement Report":
 
         d = detail_store[selected_kpi_color]
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Post-Control Valid Batches", len(d["valid_batches"]))
-        c2.metric(
+        c1.metric("Control Start Batch", str(d["control_batch_code"]))
+        c2.metric("Post-Control Valid Batches", len(d["valid_batches"]))
+        c3.metric("OOC Batches", len(d["ooc_batches"]))
+        c4.metric(
             "OOC Rate",
             f"{d['ooc_rate']:.2f}%" if pd.notna(d["ooc_rate"]) else "N/A",
             delta=d["ooc_status"]
         )
-        c3.metric(
-            "Min Cpk",
-            f"{d['min_cpk']:.3f}" if pd.notna(d["min_cpk"]) else "N/A",
-            delta=d["cpk_status"]
-        )
-        c4.metric("Overall", d["overall_status"])
 
         factor_detail_rows = []
         for f in factors:
-            lcl, ucl, lcl_col_used, ucl_col_used = get_kpi_control_limit_exact(selected_kpi_color, report_source, f)
-            lsl, usl = d["spec_by_factor"][f]
-            cpk_v = d["cpk_by_factor"][f]
+            lcl, ucl, lcl_col_used, ucl_col_used = get_kpi_control_limit_exact(
+                selected_kpi_color, report_source, f
+            )
             factor_detail_rows.append({
                 "Factor": f,
                 "SPC LCL": lcl,
                 "SPC UCL": ucl,
                 "LCL Source Column": lcl_col_used,
                 "UCL Source Column": ucl_col_used,
-                "Spec LSL": lsl,
-                "Spec USL": usl,
                 "Factor OOC Batches": d["factor_ooc_counts"].get(f, 0),
-                "Cpk": cpk_v,
-                "Cpk Status": (
-                    "✅ Achieved" if cpk_v is not None and cpk_v >= cpk_target
-                    else "❌ Not Achieved" if cpk_v is not None
-                    else "⚪ Spec Missing"
-                )
             })
 
         factor_detail_df = pd.DataFrame(factor_detail_rows)
@@ -2213,9 +2043,6 @@ elif app_mode == "🎯 KPI Achievement Report":
             factor_detail_df.style.format({
                 "SPC LCL": "{:.3f}",
                 "SPC UCL": "{:.3f}",
-                "Spec LSL": "{:.3f}",
-                "Spec USL": "{:.3f}",
-                "Cpk": "{:.3f}"
             }, na_rep="-"),
             use_container_width=True,
             hide_index=True
@@ -2235,16 +2062,14 @@ elif app_mode == "🎯 KPI Achievement Report":
                 hide_index=True,
             )
             st.warning(
-                "Only post-control batches listed above are counted in the KPI OOC numerator. "
+                "Only batches AFTER the Control Start Batch listed above are counted in the KPI OOC numerator. "
                 "If this table is empty, OOC Batches = 0."
             )
         else:
             st.success("✅ No post-control batch is strictly outside the configured LCL/UCL for this source.")
 
         st.caption(
-            "**Interpretation:** OOC Rate answers how often Phase II SPC violations occurred. "
-            "Cpk answers whether the Phase II process distribution has enough capability relative to TRUE specification limits. "
-            "LCL/UCL are control limits and are therefore kept separate from LSL/USL."
+            "**Interpretation:** OOC Rate = unique post-control OOC batches ÷ valid post-control batches × 100%. "
+            "The Control Start Batch itself is excluded. Values exactly equal to LCL or UCL are treated as in control."
         )
 
-# =========================================================
