@@ -182,6 +182,68 @@ def calculate_cpk(values, lsl, usl):
     cpl = (mean - lsl) / (3 * std)
     return min(cpu, cpl)
 
+def get_kpi_control_limit_exact(c_code, src, fac):
+    """
+    KPI-report-only control-limit resolver.
+    Existing tasks continue using safe_get_limit() unchanged.
+    """
+    try:
+        if "Color_code" not in limit_df.columns:
+            return None, None, None, None
+
+        c_search = str(c_code).strip().upper()
+        row = limit_df[
+            limit_df["Color_code"].astype(str).str.strip().str.upper() == c_search
+        ]
+        if row.empty:
+            return None, None, None, None
+
+        src_up = str(src).strip().upper()
+        fac_up = str(fac).strip().upper()
+        factor_aliases = {
+            "ΔL": ["ΔL", "DELTA L", "DELTA_L", "DELTAL"],
+            "ΔA": ["ΔA", "DELTA A", "DELTA_A", "DELTAA"],
+            "ΔB": ["ΔB", "DELTA B", "DELTA_B", "DELTAB"],
+        }
+        aliases = factor_aliases.get(fac_up, [fac_up, fac_up.replace("Δ", "DELTA ")])
+
+        def normalize(s):
+            s = str(s).upper().replace("　", " ")
+            s = re.sub(r"[\-_:/()\[\]]+", " ", s)
+            s = re.sub(r"\s+", " ", s).strip()
+            return s
+
+        def has_token(norm_name, token):
+            return re.search(rf"(?:^|\s){re.escape(token)}(?:$|\s)", norm_name) is not None
+
+        candidates = {"LCL": [], "UCL": []}
+        for col in row.columns:
+            norm = normalize(col)
+            if not has_token(norm, src_up):
+                continue
+            if not any(normalize(a) in norm for a in aliases):
+                continue
+            for kind in ["LCL", "UCL"]:
+                if has_token(norm, kind):
+                    try:
+                        val = float(row[col].iloc[0])
+                        if not pd.isna(val):
+                            candidates[kind].append((col, val, len(norm)))
+                    except Exception:
+                        pass
+
+        def choose(items):
+            if not items:
+                return None, None
+            items = sorted(items, key=lambda x: (x[2], str(x[0])))
+            return items[0][1], items[0][0]
+
+        lcl, lcl_col = choose(candidates["LCL"])
+        ucl, ucl_col = choose(candidates["UCL"])
+        return lcl, ucl, lcl_col, ucl_col
+    except Exception:
+        return None, None, None, None
+
 def get_control_batch(color):
     c_search = str(color).strip().upper()
     mask = limit_df["Color_code"].astype(str).str.strip().str.upper() == c_search
@@ -1887,9 +1949,17 @@ elif app_mode == "🎯 KPI Achievement Report":
         unique_ooc_batches = set()
         cl_complete = True
         factor_ooc_counts = {}
+        ooc_trigger_rows = []
+        control_limit_columns = {}
 
         for f in factors:
-            lcl, ucl = safe_get_limit(c, report_source, f)
+            lcl, ucl, lcl_col_used, ucl_col_used = get_kpi_control_limit_exact(c, report_source, f)
+            control_limit_columns[f] = {
+                "LCL column": lcl_col_used,
+                "UCL column": ucl_col_used,
+                "LCL": lcl,
+                "UCL": ucl,
+            }
             if lcl is None or ucl is None:
                 cl_complete = False
 
@@ -1906,15 +1976,33 @@ elif app_mode == "🎯 KPI Achievement Report":
                 # control limits. np.isclose prevents floating-point artifacts such
                 # as 0.20000000000000004 from being treated as a limit violation.
                 vals = pd.to_numeric(fdf["value"], errors="coerce")
-                at_lcl = np.isclose(vals, float(lcl), rtol=1e-10, atol=1e-12, equal_nan=False)
-                at_ucl = np.isclose(vals, float(ucl), rtol=1e-10, atol=1e-12, equal_nan=False)
-                below_lcl = (vals < float(lcl)) & (~at_lcl)
-                above_ucl = (vals > float(ucl)) & (~at_ucl)
+
+                # Equal to LCL/UCL remains IN CONTROL. The tiny tolerance only
+                # removes floating-point noise and does not widen the limits.
+                tol = 1e-9
+                below_lcl = vals < (float(lcl) - tol)
+                above_ucl = vals > (float(ucl) + tol)
                 ooc_mask_kpi = below_lcl | above_ucl
 
                 ooc_f = fdf[ooc_mask_kpi].copy()
                 factor_ooc_counts[f] = ooc_f["製造批號"].nunique()
                 unique_ooc_batches.update(ooc_f["製造批號"].astype(str).tolist())
+
+                if not ooc_f.empty:
+                    for _, rr in ooc_f.iterrows():
+                        vv = float(rr["value"])
+                        side = "Below LCL" if vv < (float(lcl) - tol) else "Above UCL"
+                        distance = (float(lcl) - vv) if side == "Below LCL" else (vv - float(ucl))
+                        ooc_trigger_rows.append({
+                            "Factor": f,
+                            "Batch No.": str(rr["製造批號"]),
+                            "Time": rr.get("Time", pd.NaT),
+                            "Batch Average": vv,
+                            "LCL": float(lcl),
+                            "UCL": float(ucl),
+                            "Trigger": side,
+                            "Outside by": distance,
+                        })
             else:
                 factor_ooc_counts[f] = 0
 
@@ -1998,7 +2086,9 @@ elif app_mode == "🎯 KPI Achievement Report":
             "min_cpk": min_cpk,
             "worst_factor": worst_factor,
             "overall_status": overall_status,
-            "factor_ooc_counts": factor_ooc_counts
+            "factor_ooc_counts": factor_ooc_counts,
+            "ooc_trigger_rows": ooc_trigger_rows,
+            "control_limit_columns": control_limit_columns
         }
 
     report_df = pd.DataFrame(report_rows)
@@ -2087,13 +2177,15 @@ elif app_mode == "🎯 KPI Achievement Report":
 
         factor_detail_rows = []
         for f in factors:
-            lcl, ucl = safe_get_limit(selected_kpi_color, report_source, f)
+            lcl, ucl, lcl_col_used, ucl_col_used = get_kpi_control_limit_exact(selected_kpi_color, report_source, f)
             lsl, usl = d["spec_by_factor"][f]
             cpk_v = d["cpk_by_factor"][f]
             factor_detail_rows.append({
                 "Factor": f,
                 "SPC LCL": lcl,
                 "SPC UCL": ucl,
+                "LCL Source Column": lcl_col_used,
+                "UCL Source Column": ucl_col_used,
                 "Spec LSL": lsl,
                 "Spec USL": usl,
                 "Factor OOC Batches": d["factor_ooc_counts"].get(f, 0),
@@ -2117,6 +2209,26 @@ elif app_mode == "🎯 KPI Achievement Report":
             use_container_width=True,
             hide_index=True
         )
+
+        st.markdown("#### 🚨 OOC Trigger Audit (KPI Only)")
+        if d.get("ooc_trigger_rows"):
+            audit_df = pd.DataFrame(d["ooc_trigger_rows"]).sort_values(["Time", "Factor", "Batch No."])
+            st.dataframe(
+                audit_df.style.format({
+                    "Batch Average": "{:.10f}",
+                    "LCL": "{:.10f}",
+                    "UCL": "{:.10f}",
+                    "Outside by": "{:.10f}",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.warning(
+                "Only batches listed above are counted in the KPI OOC numerator. "
+                "If this table is empty, OOC Batches = 0."
+            )
+        else:
+            st.success("✅ No Phase II batch is strictly outside the configured LCL/UCL for this source.")
 
         st.caption(
             "**Interpretation:** OOC Rate answers how often Phase II SPC violations occurred. "
