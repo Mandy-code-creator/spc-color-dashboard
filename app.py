@@ -118,6 +118,70 @@ def safe_get_limit(c_code, src, fac):
     except:
         return None, None
 
+def safe_get_spec(c_code, src, fac):
+    """
+    Read TRUE specification limits (LSL/USL) from limit_df.
+
+    Expected examples in the Google Sheet:
+      LINE ΔL LSL, LINE ΔL USL
+      LINE Δa LSL, LINE Δa USL
+      LINE Δb LSL, LINE Δb USL
+      LAB  ΔL LSL, LAB  ΔL USL, ...
+
+    IMPORTANT: This function intentionally does NOT use LCL/UCL because
+    control limits are not specification limits and should not be used for Cpk.
+    """
+    try:
+        if "Color_code" not in limit_df.columns:
+            return None, None
+
+        c_search = str(c_code).strip().upper()
+        mask = limit_df["Color_code"].astype(str).str.strip().str.upper() == c_search
+        row = limit_df[mask]
+        if row.empty:
+            return None, None
+
+        src_up = str(src).strip().upper()
+        fac1 = str(fac).strip().upper()
+        fac2 = fac1.replace("Δ", "DELTA ")
+
+        lsl, usl = None, None
+        for col in row.columns:
+            cup = str(col).strip().upper()
+            factor_match = (fac1 in cup) or (fac2 in cup)
+            source_match = src_up in cup
+            if source_match and factor_match:
+                val = row[col].iloc[0]
+                try:
+                    num = float(val)
+                    if pd.isna(num):
+                        continue
+                    if "LSL" in cup:
+                        lsl = num
+                    if "USL" in cup:
+                        usl = num
+                except:
+                    pass
+
+        return lsl, usl
+    except:
+        return None, None
+
+def calculate_cpk(values, lsl, usl):
+    """Two-sided Cpk using sample standard deviation (ddof=1)."""
+    if lsl is None or usl is None or lsl >= usl:
+        return None
+    s = pd.to_numeric(pd.Series(values), errors="coerce").dropna()
+    if len(s) < 3:
+        return None
+    mean = s.mean()
+    std = s.std(ddof=1)
+    if pd.isna(std) or std <= 0:
+        return None
+    cpu = (usl - mean) / (3 * std)
+    cpl = (mean - lsl) / (3 * std)
+    return min(cpu, cpl)
+
 def get_control_batch(color):
     c_search = str(color).strip().upper()
     mask = limit_df["Color_code"].astype(str).str.strip().str.upper() == c_search
@@ -188,7 +252,8 @@ app_mode = st.sidebar.radio(
         "🎛️ Control Limit Calculator",
         "🔬 Lab vs Line Scale-up",
         "📄 AI OOC Word Report",
-        "📈 I-MR Chart (Coil-Level)" # THÊM DÒNG NÀY VÀO MENU
+        "🎯 KPI Achievement Report",
+        "📈 I-MR Chart (Coil-Level)"
     ],
     label_visibility="collapsed"
 )
@@ -562,8 +627,8 @@ if app_mode == "🚀 Main Dashboard":
             if std > 0:
                 x = np.linspace(mean - 4 * std, mean + 4 * std, 500)
                 ax.plot(x, normal_pdf(x, mean, std) * len(values) * (bins[1] - bins[0]), color="black", linewidth=2)
-            if lcl is not None: ax.axvline(lcl, color="red", linestyle="--", linewidth=1.5, label="LSL")
-            if ucl is not None: ax.axvline(ucl, color="red", linestyle="--", linewidth=1.5, label="USL")
+            if lcl is not None: ax.axvline(lcl, color="red", linestyle="--", linewidth=1.5, label="LCL")
+            if ucl is not None: ax.axvline(ucl, color="red", linestyle="--", linewidth=1.5, label="UCL")
             ax.text(0.02, 0.95, f"N = {len(values)}\nMean = {mean:.3f}\nStd = {std:.3f}", transform=ax.transAxes, va="top", fontsize=9, bbox=dict(facecolor="white", alpha=0.9))
             ax.set_title(f"{k} (LINE)"); ax.grid(axis="y", alpha=0.3); ax.legend(fontsize=8); st.pyplot(fig)
             buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=150, bbox_inches="tight"); buf.seek(0)
@@ -586,8 +651,8 @@ if app_mode == "🚀 Main Dashboard":
             if std > 0:
                 x = np.linspace(mean - 4 * std, mean + 4 * std, 500)
                 ax.plot(x, normal_pdf(x, mean, std) * len(values) * (bins[1] - bins[0]), color="black", linewidth=2)
-            if lcl is not None: ax.axvline(lcl, color="red", linestyle="--", linewidth=1.5, label="LSL")
-            if ucl is not None: ax.axvline(ucl, color="red", linestyle="--", linewidth=1.5, label="USL")
+            if lcl is not None: ax.axvline(lcl, color="red", linestyle="--", linewidth=1.5, label="LCL")
+            if ucl is not None: ax.axvline(ucl, color="red", linestyle="--", linewidth=1.5, label="UCL")
             ax.text(0.02, 0.95, f"N = {len(values)}\nMean = {mean:.3f}\nStd = {std:.3f}", transform=ax.transAxes, va="top", fontsize=9, bbox=dict(facecolor="white", alpha=0.9))
             ax.set_title(f"{k} (LAB)"); ax.grid(axis="y", alpha=0.3); ax.legend(fontsize=8); st.pyplot(fig)
             buf = io.BytesIO(); fig.savefig(buf, format="png", dpi=150, bbox_inches="tight"); buf.seek(0)
@@ -1491,8 +1556,8 @@ elif app_mode == "📄 AI OOC Word Report":
                             line_str = f"[{line_lim[0]:.2f} ~ {line_lim[1]:.2f}]" if line_lim[0] is not None else "Not Configured"
                             
                             limit_p = doc.add_paragraph()
-                            limit_p.add_run("📌 Current Control Limits (Spec):\n").bold = True
-                            limit_p.add_run(f"   • LAB Target: {lab_str}\n   • LINE Target: {line_str}")
+                            limit_p.add_run("📌 Current SPC Control Limits:\n").bold = True
+                            limit_p.add_run(f"   • LAB Control Range: {lab_str}\n   • LINE Control Range: {line_str}")
 
                             table = doc.add_table(rows=1, cols=4)
                             table.style = 'Table Grid'
@@ -1546,7 +1611,337 @@ elif app_mode == "📄 AI OOC Word Report":
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
 # =========================================================
-# VIEW 6: I-MR CHART (COIL-LEVEL)
+# VIEW 6: KPI ACHIEVEMENT REPORT – CONTROLLED COLORS
+# =========================================================
+elif app_mode == "🎯 KPI Achievement Report":
+    st.title("🎯 SPC KPI Achievement Report – Controlled Colors")
+    st.markdown(
+        "Evaluate controlled colors using two parallel KPI: "
+        "**(1) Phase II OOC Rate ≤ target** and **(2) Minimum Cpk ≥ target**."
+    )
+
+    st.info(
+        "**KPI logic:** A Phase II batch is counted as OOC only once even if multiple factors "
+        "(ΔL / Δa / Δb) violate SPC rules. For Cpk, the color-level KPI uses the **minimum Cpk** "
+        "among ΔL, Δa and Δb (worst-case factor)."
+    )
+
+    col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
+    with col_cfg1:
+        report_source = st.radio(
+            "Data Source",
+            ["LINE", "LAB"],
+            horizontal=True,
+            index=0,
+            key="kpi_report_source"
+        )
+    with col_cfg2:
+        ooc_target = st.number_input(
+            "OOC Rate Target (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=5.0,
+            step=0.5,
+            key="kpi_ooc_target"
+        )
+    with col_cfg3:
+        cpk_target = st.number_input(
+            "Cpk Target",
+            min_value=0.0,
+            value=1.33,
+            step=0.01,
+            key="kpi_cpk_target"
+        )
+
+    source_key = report_source.lower()
+    factors = ["ΔL", "Δa", "Δb"]
+
+    # Detect whether TRUE specification columns exist in the Google Sheet.
+    # We intentionally do not treat LCL/UCL as specification limits.
+    spec_like_cols = [
+        c for c in limit_df.columns
+        if ("LSL" in str(c).upper() or "USL" in str(c).upper())
+    ]
+    if not spec_like_cols:
+        st.warning(
+            "⚠️ **Cpk cannot be certified yet:** no true LSL/USL specification columns were found "
+            "in the Limit Google Sheet. Add columns such as `LINE ΔL LSL`, `LINE ΔL USL`, "
+            "`LINE Δa LSL`, `LINE Δa USL`, `LINE Δb LSL`, `LINE Δb USL`. "
+            "The report will still calculate OOC Rate; Cpk will show N/A until specifications are provided."
+        )
+
+    report_rows = []
+    detail_store = {}
+    all_colors_report = sorted(df_raw["塗料編號"].dropna().unique())
+
+    for c in all_colors_report:
+        df_c = df_raw[df_raw["塗料編號"] == c].sort_values("Time").copy()
+        if df_c.empty:
+            continue
+
+        cb = get_control_batch(c)
+        cb_code = get_control_batch_code(df_c, cb)
+        c_time = df_c[df_c["製造批號"] == cb_code]["Time"].min() if cb_code else None
+
+        # Only colors with an actual control start point are treated as controlled colors.
+        if cb is None or cb_code is None or c_time is None:
+            continue
+
+        df_p2 = df_c[df_c["Time"] >= c_time].copy()
+        if df_p2.empty:
+            continue
+
+        spc_p2 = calculate_batch_averages(df_p2)
+
+        # Use only batches that have valid Phase II values for all 3 factors.
+        factor_batch_sets = []
+        factor_frames = {}
+        for f in factors:
+            fdf = spc_p2[f][source_key][["製造批號", "Time", "value"]].dropna(subset=["value"]).copy()
+            factor_frames[f] = fdf
+            factor_batch_sets.append(set(fdf["製造批號"].tolist()))
+
+        if factor_batch_sets:
+            valid_batches = set.intersection(*factor_batch_sets) if all(factor_batch_sets) else set()
+        else:
+            valid_batches = set()
+
+        n_valid = len(valid_batches)
+        phase2_batches_raw = df_p2["製造批號"].nunique()
+
+        # -------------------------------------------------------------
+        # KPI 1 – OOC Rate (unique batch level)
+        # -------------------------------------------------------------
+        unique_ooc_batches = set()
+        cl_complete = True
+        factor_ooc_counts = {}
+
+        for f in factors:
+            lcl, ucl = safe_get_limit(c, report_source, f)
+            if lcl is None or ucl is None:
+                cl_complete = False
+
+            fdf = factor_frames[f]
+            if valid_batches:
+                fdf = fdf[fdf["製造批號"].isin(valid_batches)].copy()
+            else:
+                fdf = fdf.iloc[0:0].copy()
+
+            if not fdf.empty:
+                ooc_f = detect_out_of_control(fdf, lcl, ucl)
+                factor_ooc_counts[f] = ooc_f["製造批號"].nunique()
+                unique_ooc_batches.update(ooc_f["製造批號"].astype(str).tolist())
+            else:
+                factor_ooc_counts[f] = 0
+
+        n_ooc = len(unique_ooc_batches)
+        ooc_rate = (n_ooc / n_valid * 100) if n_valid > 0 else np.nan
+
+        if not cl_complete:
+            ooc_status = "⚪ CL Missing"
+        elif pd.isna(ooc_rate):
+            ooc_status = "⚪ No Data"
+        elif ooc_rate <= ooc_target:
+            ooc_status = "✅ Achieved"
+        else:
+            ooc_status = "❌ Not Achieved"
+
+        # -------------------------------------------------------------
+        # KPI 2 – Cpk (TRUE LSL/USL only)
+        # -------------------------------------------------------------
+        cpk_by_factor = {}
+        spec_by_factor = {}
+        for f in factors:
+            lsl, usl = safe_get_spec(c, report_source, f)
+            spec_by_factor[f] = (lsl, usl)
+
+            fdf = factor_frames[f]
+            if valid_batches:
+                fdf = fdf[fdf["製造批號"].isin(valid_batches)]
+            else:
+                fdf = fdf.iloc[0:0]
+
+            cpk_by_factor[f] = calculate_cpk(fdf["value"], lsl, usl)
+
+        available_cpks = {f: v for f, v in cpk_by_factor.items() if v is not None and pd.notna(v)}
+        if len(available_cpks) == len(factors):
+            worst_factor = min(available_cpks, key=available_cpks.get)
+            min_cpk = available_cpks[worst_factor]
+            cpk_status = "✅ Achieved" if min_cpk >= cpk_target else "❌ Not Achieved"
+        else:
+            worst_factor = "-"
+            min_cpk = np.nan
+            cpk_status = "⚪ Spec Missing"
+
+        both_achieved = (ooc_status == "✅ Achieved" and cpk_status == "✅ Achieved")
+        if both_achieved:
+            overall_status = "✅ BOTH KPI ACHIEVED"
+        elif ooc_status.startswith("⚪") or cpk_status.startswith("⚪"):
+            overall_status = "⚪ INCOMPLETE"
+        else:
+            overall_status = "❌ ACTION REQUIRED"
+
+        report_rows.append({
+            "Color Code": c,
+            "Control Batch #": cb,
+            "Control Start Batch": cb_code,
+            "Phase II Raw Batches": phase2_batches_raw,
+            "SPC Valid Batches": n_valid,
+            "OOC Batches": n_ooc,
+            "OOC Rate (%)": round(ooc_rate, 2) if pd.notna(ooc_rate) else np.nan,
+            "OOC KPI": ooc_status,
+            "ΔL Cpk": round(cpk_by_factor["ΔL"], 3) if cpk_by_factor["ΔL"] is not None else np.nan,
+            "Δa Cpk": round(cpk_by_factor["Δa"], 3) if cpk_by_factor["Δa"] is not None else np.nan,
+            "Δb Cpk": round(cpk_by_factor["Δb"], 3) if cpk_by_factor["Δb"] is not None else np.nan,
+            "Min Cpk": round(min_cpk, 3) if pd.notna(min_cpk) else np.nan,
+            "Worst Cpk Factor": worst_factor,
+            "Cpk KPI": cpk_status,
+            "Overall Status": overall_status
+        })
+
+        detail_store[c] = {
+            "control_batch": cb,
+            "control_batch_code": cb_code,
+            "control_time": c_time,
+            "raw_phase2_batches": phase2_batches_raw,
+            "valid_batches": valid_batches,
+            "ooc_batches": unique_ooc_batches,
+            "ooc_rate": ooc_rate,
+            "ooc_status": ooc_status,
+            "cpk_by_factor": cpk_by_factor,
+            "spec_by_factor": spec_by_factor,
+            "cpk_status": cpk_status,
+            "min_cpk": min_cpk,
+            "worst_factor": worst_factor,
+            "overall_status": overall_status,
+            "factor_ooc_counts": factor_ooc_counts
+        }
+
+    report_df = pd.DataFrame(report_rows)
+
+    if report_df.empty:
+        st.warning("No controlled colors with Phase II data were found.")
+    else:
+        # -------------------------------------------------------------
+        # Executive KPI cards
+        # -------------------------------------------------------------
+        n_controlled = len(report_df)
+        n_ooc_ok = int((report_df["OOC KPI"] == "✅ Achieved").sum())
+        n_cpk_ok = int((report_df["Cpk KPI"] == "✅ Achieved").sum())
+        n_both = int((report_df["Overall Status"] == "✅ BOTH KPI ACHIEVED").sum())
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Controlled Colors", n_controlled)
+        m2.metric(f"OOC ≤ {ooc_target:.1f}%", f"{n_ooc_ok}/{n_controlled}")
+        m3.metric(f"Cpk ≥ {cpk_target:.2f}", f"{n_cpk_ok}/{n_controlled}")
+        m4.metric("Both KPI Achieved", f"{n_both}/{n_controlled}")
+
+        st.markdown("---")
+        st.markdown("### 📋 Controlled Color KPI Summary")
+
+        def _kpi_row_style(row):
+            if row.get("Overall Status") == "✅ BOTH KPI ACHIEVED":
+                return ["background-color: #e8f5e9"] * len(row)
+            if row.get("Overall Status") == "❌ ACTION REQUIRED":
+                return ["background-color: #ffebee"] * len(row)
+            return ["background-color: #fff8e1"] * len(row)
+
+        display_report_df = report_df.sort_values(
+            by=["Overall Status", "OOC Rate (%)", "Min Cpk"],
+            ascending=[True, False, True],
+            na_position="last"
+        ).reset_index(drop=True)
+
+        st.dataframe(
+            display_report_df.style
+                .apply(_kpi_row_style, axis=1)
+                .format({
+                    "OOC Rate (%)": "{:.2f}",
+                    "ΔL Cpk": "{:.3f}",
+                    "Δa Cpk": "{:.3f}",
+                    "Δb Cpk": "{:.3f}",
+                    "Min Cpk": "{:.3f}"
+                }, na_rep="-"),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        csv_buf = display_report_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            "📥 Download KPI Summary CSV",
+            data=csv_buf,
+            file_name=f"SPC_KPI_Achievement_{report_source}_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+            key="download_kpi_report_csv"
+        )
+
+        # -------------------------------------------------------------
+        # Selected color drill-down
+        # -------------------------------------------------------------
+        st.markdown("---")
+        st.markdown("### 🔎 Color Detail")
+        selected_kpi_color = st.selectbox(
+            "Select controlled color",
+            display_report_df["Color Code"].tolist(),
+            key="kpi_detail_color"
+        )
+
+        d = detail_store[selected_kpi_color]
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Phase II Valid Batches", len(d["valid_batches"]))
+        c2.metric(
+            "OOC Rate",
+            f"{d['ooc_rate']:.2f}%" if pd.notna(d["ooc_rate"]) else "N/A",
+            delta=d["ooc_status"]
+        )
+        c3.metric(
+            "Min Cpk",
+            f"{d['min_cpk']:.3f}" if pd.notna(d["min_cpk"]) else "N/A",
+            delta=d["cpk_status"]
+        )
+        c4.metric("Overall", d["overall_status"])
+
+        factor_detail_rows = []
+        for f in factors:
+            lcl, ucl = safe_get_limit(selected_kpi_color, report_source, f)
+            lsl, usl = d["spec_by_factor"][f]
+            cpk_v = d["cpk_by_factor"][f]
+            factor_detail_rows.append({
+                "Factor": f,
+                "SPC LCL": lcl,
+                "SPC UCL": ucl,
+                "Spec LSL": lsl,
+                "Spec USL": usl,
+                "Factor OOC Batches": d["factor_ooc_counts"].get(f, 0),
+                "Cpk": cpk_v,
+                "Cpk Status": (
+                    "✅ Achieved" if cpk_v is not None and cpk_v >= cpk_target
+                    else "❌ Not Achieved" if cpk_v is not None
+                    else "⚪ Spec Missing"
+                )
+            })
+
+        factor_detail_df = pd.DataFrame(factor_detail_rows)
+        st.dataframe(
+            factor_detail_df.style.format({
+                "SPC LCL": "{:.3f}",
+                "SPC UCL": "{:.3f}",
+                "Spec LSL": "{:.3f}",
+                "Spec USL": "{:.3f}",
+                "Cpk": "{:.3f}"
+            }, na_rep="-"),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.caption(
+            "**Interpretation:** OOC Rate answers how often Phase II SPC violations occurred. "
+            "Cpk answers whether the Phase II process distribution has enough capability relative to TRUE specification limits. "
+            "LCL/UCL are control limits and are therefore kept separate from LSL/USL."
+        )
+
+# =========================================================
+# VIEW 7: I-MR CHART (COIL-LEVEL)
 # =========================================================
 elif app_mode == "📈 I-MR Chart (Coil-Level)":
     st.title("📈 Individual - Moving Range (I-MR) Chart")
@@ -1616,7 +2011,7 @@ elif app_mode == "📈 I-MR Chart (Coil-Level)":
             t_max = df_imr["Time"].max().strftime("%Y-%m-%d")
             date_str = f"{t_min} to {t_max}"
 
-            # Fetch Spec Limits from Google Sheet
+            # Fetch configured SPC control limits from Google Sheet
             spec_lcl, spec_ucl = safe_get_limit(color, source_opt, factor_opt)
 
             st.markdown("---")
@@ -1639,11 +2034,11 @@ elif app_mode == "📈 I-MR Chart (Coil-Level)":
             ax_i.axhline(ucl_i, color="#d62728", linestyle="--", linewidth=1.5, label=f"Stat UCL (3σ) = {ucl_i:.3f}")
             ax_i.axhline(lcl_i, color="#d62728", linestyle="--", linewidth=1.5, label=f"Stat LCL (3σ) = {lcl_i:.3f}")
             
-            # 4. Plot Specification Limits (From Google Sheet)
+            # 4. Plot configured SPC control limits (From Google Sheet)
             if spec_lcl is not None:
-                ax_i.axhline(spec_lcl, color="#7030a0", linestyle="-", linewidth=2, label=f"Spec LCL = {spec_lcl}")
+                ax_i.axhline(spec_lcl, color="#7030a0", linestyle="-", linewidth=2, label=f"Configured LCL = {spec_lcl}")
             if spec_ucl is not None:
-                ax_i.axhline(spec_ucl, color="#7030a0", linestyle="-", linewidth=2, label=f"Spec UCL = {spec_ucl}")
+                ax_i.axhline(spec_ucl, color="#7030a0", linestyle="-", linewidth=2, label=f"Configured UCL = {spec_ucl}")
 
             # Smart X-Axis Ticks
             if len(df_imr) > 40:
